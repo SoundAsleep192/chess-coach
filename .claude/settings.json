@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run coach:*)",
+      "Bash(uv sync:*)",
+      "Bash(sysctl -n hw.perflevel0.physicalcpu)"
+    ]
+  }
+}

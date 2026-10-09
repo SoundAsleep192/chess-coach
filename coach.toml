@@ -1,0 +1,22 @@
+# Chess coach configuration
+
+[player]
+lichess = "soundasleep"
+chesscom = "sex_sempai"
+
+[engine]
+# Empty = auto-detect: $COACH_STOCKFISH, then `stockfish` on PATH, then Homebrew paths, then ./engines/stockfish
+path = ""
+# On Apple Silicon set this to the number of performance cores: sysctl -n hw.perflevel0.physicalcpu
+threads = 4
+hash_mb = 512
+
+[review]
+# Seconds per position in the full-game pass
+time_per_move = 0.4
+# Seconds per position for the deep pass on critical moments (MultiPV 3)
+deep_time = 3.0
+# Thresholds: drop in win% (0-100) for the side that moved. Lichess-equivalent defaults.
+inaccuracy = 5.0
+mistake = 10.0
+blunder = 15.0

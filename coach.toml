@@ -3,12 +3,14 @@
 [player]
 lichess = "soundasleep"
 chesscom = "sex_sempai"
+# Name used for over-the-board games imported with `coach import`
+otb_name = "Исаханов Наби"
 
 [engine]
 # Empty = auto-detect: $COACH_STOCKFISH, then `stockfish` on PATH, then Homebrew paths, then ./engines/stockfish
 path = ""
 # On Apple Silicon set this to the number of performance cores: sysctl -n hw.perflevel0.physicalcpu
-threads = 4
+threads = 6
 hash_mb = 512
 
 [review]

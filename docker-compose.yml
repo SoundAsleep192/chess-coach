@@ -1,0 +1,31 @@
+name: chess-coach
+
+services:
+  mongo:
+    image: mongo:9.0.2
+    volumes:
+      - board-mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  board:
+    build: ./web
+    image: chess-coach-board:local
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      MONGO_URL: mongodb://mongo:27017/board
+      HOST: 0.0.0.0
+      PORT: "8765"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  board-mongo:

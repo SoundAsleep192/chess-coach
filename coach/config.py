@@ -29,6 +29,7 @@ OUT = ROOT / "out"
 class Config:
     lichess: str = ""
     chesscom: str = ""
+    otb_name: str = ""
     engine_path: str = ""
     threads: int = 4
     hash_mb: int = 256
@@ -40,7 +41,7 @@ class Config:
 
     @property
     def usernames(self) -> set[str]:
-        return {u.lower() for u in (self.lichess, self.chesscom) if u}
+        return {u.lower() for u in (self.lichess, self.chesscom, self.otb_name) if u}
 
 
 def load_config() -> Config:
@@ -54,6 +55,7 @@ def load_config() -> Config:
     review = data.get("review", {})
     cfg.lichess = player.get("lichess", cfg.lichess)
     cfg.chesscom = player.get("chesscom", cfg.chesscom)
+    cfg.otb_name = player.get("otb_name", cfg.otb_name)
     cfg.engine_path = engine.get("path", cfg.engine_path)
     cfg.threads = int(engine.get("threads", cfg.threads))
     cfg.hash_mb = int(engine.get("hash_mb", cfg.hash_mb))

@@ -1,4 +1,4 @@
-"""Game import from Lichess / Chess.com, local storage, index and lookup."""
+"""Game import from Lichess / Chess.com / over-the-board PGN, local storage, index and lookup."""
 from __future__ import annotations
 
 import io
@@ -17,7 +17,7 @@ import chess.pgn
 from .config import GAMES, REVIEWS, Config
 
 UA = "chess-coach/0.1 (personal training tool; python-chess)"
-SOURCES = ("lichess", "chesscom")
+SOURCES = ("lichess", "chesscom", "otb")
 INDEX = GAMES / "index.json"
 SYNC = GAMES / "sync.json"
 
@@ -159,7 +159,7 @@ def index_record(h: chess.pgn.Headers, source: str, gid: str, cfg: Config) -> di
         "opponent": black if color == "white" else white if color == "black" else None,
         "opp_elo": opp_elo,
         "time_control": h.get("TimeControl", ""),
-        "time_class": time_class(h.get("TimeControl", "")),
+        "time_class": h.get("TimeClass") or time_class(h.get("TimeControl", "")),
         "rated": "rated" in h.get("Event", "").lower() or source == "chesscom",
         "eco": h.get("ECO", ""),
         "opening": full,
@@ -245,6 +245,105 @@ def fetch_chesscom(cfg: Config, since: datetime | None, max_games: int | None) -
     return n
 
 
+
+# ---------------------------------------------------------------- over-the-board import
+
+_CHAPTER_PLAYERS = re.compile(r"^(?:(?:Тур|Партия|Round|Game)\s*\d+\.?\s*)?(.+?)\s+-\s+(.+)$")
+
+
+def _chapter_players(chapter: str) -> tuple[str, str] | None:
+    """'Тур 2. Исаханов (1047) - Зубков (1350)' -> ('Исаханов', 'Зубков')."""
+    chapter = chapter.strip()
+    # 'Партия 1 (Колесников - Исаханов)': players wrapped in parentheses after the prefix
+    wrapped = re.match(r"^((?:Тур|Партия|Round|Game)\s*\d+\.?\s*)\((.+ - .+)\)$", chapter)
+    if wrapped:
+        chapter = wrapped.group(1) + wrapped.group(2)
+    m = _CHAPTER_PLAYERS.match(chapter)
+    if not m:
+        return None
+    clean = lambda s: re.sub(r"\s*\(.*?\)\s*", " ", s).strip()
+    return clean(m.group(1)), clean(m.group(2))
+
+
+def import_otb(cfg: Config, ref: str, tc: str, color: str | None = None,
+               results: list[str] | None = None) -> int:
+    """Import over-the-board games from a Lichess study URL/id or a PGN file into data/games/otb.
+
+    tc: TimeControl tag like '600+5', or a time class ('rapid', 'classical') when the exact control is unknown.
+    color: player's colour for chapters whose players can't be identified from headers or chapter name.
+    results: results in chapter order, used where the source has no result ('*').
+    """
+    if results and any(r not in ("1-0", "0-1", "1/2-1/2", "*") for r in results):
+        raise SystemExit(f"Bad --results {results}: use 1-0, 0-1, 1/2-1/2 or *")
+    if not cfg.otb_name:
+        raise SystemExit("Set [player].otb_name in coach.toml (your name as written in tournament PGNs)")
+    p = Path(ref).expanduser()
+    if p.is_file():
+        raw, study = p.read_text(encoding="utf-8"), p.stem
+    else:
+        m = re.search(r"(?:lichess\.org/study/)?([A-Za-z0-9]{8})(?:/|$)", ref)
+        if not m:
+            raise SystemExit(f"Not a Lichess study or PGN file: {ref}")
+        study = m.group(1)
+        raw = http_get(f"https://lichess.org/api/study/{study}.pgn?comments=false&variations=false&clocks=true",
+                       accept="application/x-chess-pgn").decode("utf-8")
+    surname = cfg.otb_name.split()[0].lower()
+    stream = io.StringIO(raw)
+    n = chapter_no = 0
+    while (src := chess.pgn.read_game(stream)) is not None:
+        chapter_no += 1
+        h = src.headers
+        chapter = h.get("ChapterName", "") or h.get("Event", "")
+        if not any(True for _ in src.mainline_moves()):
+            print(f"  skip (no moves): {chapter}", file=sys.stderr)
+            continue
+        white, black = h.get("White", "?"), h.get("Black", "?")
+        if white in ("?", "") or black in ("?", ""):
+            white, black = _chapter_players(chapter) or ("?", "?")
+        me = "white" if surname in white.lower() else "black" if surname in black.lower() else color
+        if me is None:
+            print(f"  skip (can't tell your colour, pass --color): {chapter}", file=sys.stderr)
+            continue
+        if me == "white":
+            white = cfg.otb_name
+        else:
+            black = cfg.otb_name
+        if white == "?" or black == "?":
+            white, black = (cfg.otb_name, "Opponent") if me == "white" else ("Opponent", cfg.otb_name)
+        game = chess.pgn.Game()
+        for key in ("Date", "ECO", "Opening"):
+            if h.get(key):
+                game.headers[key] = h[key]
+        game.headers["Event"] = h.get("StudyName") or h.get("Event", "OTB")
+        game.headers["Round"] = chapter
+        game.headers["White"], game.headers["Black"] = white, black
+        game.headers["Result"] = h.get("Result", "*")
+        if game.headers["Result"] == "*" and results and chapter_no <= len(results):
+            game.headers["Result"] = results[chapter_no - 1]
+        for key in ("WhiteElo", "BlackElo"):
+            if h.get(key):
+                game.headers[key] = h[key]
+        if re.fullmatch(r"\d+(\+\d+)?", tc):
+            game.headers["TimeControl"] = tc
+        else:
+            game.headers["TimeControl"] = "-"
+            game.headers["TimeClass"] = tc
+        url = h.get("ChapterURL", "")
+        chap_id = url.rstrip("/").rsplit("/", 1)[-1] if url else f"{study}-{n + 1}"
+        game.headers["Site"] = url or "OTB"
+        game.headers["GameId"] = f"otb-{chap_id}"
+        node = game
+        for src_node in src.mainline():
+            node = node.add_variation(src_node.move)
+            if src_node.clock() is not None:
+                node.set_clock(src_node.clock())
+        if _save_game(game, "otb"):
+            n += 1
+            print(f"  {game.headers['GameId']}: {white} - {black} {game.headers['Result']}", file=sys.stderr)
+    rebuild_index(cfg)
+    return n
+
+
 def fetch(cfg: Config, sources: list[str], since: str | None, days: int | None, max_games: int | None) -> None:
     sync = _read_json(SYNC, {})
     now = datetime.now(timezone.utc)
@@ -326,6 +425,15 @@ def filter_games(idx: list[dict], source=None, result=None, tclass=None, color=N
             continue
         out.append(r)
     return out
+
+
+def player_color(game: chess.pgn.Game, cfg: Config) -> bool | None:
+    """The student's colour in the game (chess.WHITE / chess.BLACK) by username, or None if unknown."""
+    if game.headers.get("Black", "").lower() in cfg.usernames:
+        return chess.BLACK
+    if game.headers.get("White", "").lower() in cfg.usernames:
+        return chess.WHITE
+    return None
 
 
 def resolve_game(ref: str, cfg: Config) -> tuple[chess.pgn.Game, str, str]:

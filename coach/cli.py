@@ -12,7 +12,9 @@ import chess.engine
 from . import board as boardmod
 from .config import GAMES, REVIEWS, ROOT, find_stockfish, load_config
 from .engine import analyse, apply_moves, make_limit, open_engine
-from .games import fetch, filter_games, is_reviewed, load_index, rebuild_index, resolve_game
+from .boardclient import BoardClient, BoardError, BoardUnavailable
+from .boardcmd import add_board_parser, arrows_for, cmd_board, show_on_server, svg_arrow
+from .games import fetch, filter_games, import_otb, is_reviewed, load_index, player_color, rebuild_index, resolve_game
 from .review import format_review, review_game
 from .stats import stats_text
 
@@ -31,12 +33,7 @@ def resolve_position(args, cfg):
         for mv in moves[:n]:
             b.push(mv)
             lastmove = mv
-        white = game.headers.get("White", "").lower()
-        black = game.headers.get("Black", "").lower()
-        if black in cfg.usernames:
-            orientation = chess.BLACK
-        elif white in cfg.usernames:
-            orientation = chess.WHITE
+        orientation = player_color(game, cfg)
     else:
         pos = " ".join(args.position).strip() if args.position else "start"
         try:
@@ -98,6 +95,12 @@ def cmd_fetch(args, cfg):
     fetch(cfg, sources, args.since, args.days, args.max)
 
 
+def cmd_import(args, cfg):
+    results = [r.strip() for r in args.results.split(",")] if args.results else None
+    n = import_otb(cfg, args.ref, args.tc, args.color, results)
+    print(f"imported {n} games into data/games/otb")
+
+
 def cmd_games(args, cfg):
     idx = rebuild_index(cfg) if args.reindex else load_index(cfg)
     rows = filter_games(idx, args.source, args.result, args.tc, args.color, args.opening, args.unreviewed, args.since)
@@ -155,18 +158,19 @@ def cmd_stats(args, cfg):
 
 def cmd_show(args, cfg):
     b, orientation, lastmove = resolve_position(args, cfg)
-    arrows = []
+    arrows = arrows_for(b.fen(), args.best, args.played, args.arrows)
+    client = BoardClient()
     try:
-        if args.best:
-            arrows.append(boardmod.parse_arrow(b, args.best, boardmod.GREEN))
-        if args.played:
-            arrows.append(boardmod.parse_arrow(b, args.played, boardmod.RED))
-        for tok in (args.arrows or "").split(","):
-            if tok.strip():
-                arrows.append(boardmod.parse_arrow(b, tok, boardmod.BLUE))
-    except ValueError as e:
-        raise SystemExit(str(e))
-    path = boardmod.write_live(b, orientation, arrows, lastmove, args.caption or "")
+        ply_offset = max(0, len(b.move_stack) - 1) if getattr(args, "game", None) else None
+        state = show_on_server(client, b, orientation, arrows, args.caption, ply_offset)
+        print(f"board: {client.base_url}  (live server, version {state['version']})")
+        print(f"FEN {b.fen()}")
+        return
+    except BoardUnavailable:
+        print("board server is not running: writing out/board.html (no live board)")
+    except BoardError as e:
+        raise SystemExit(f"board server rejected the position: {e}")
+    path = boardmod.write_live(b, orientation, [svg_arrow(a) for a in arrows], lastmove, args.caption or "")
     print(f"board: {path}  (page auto-refreshes every 2s)")
     print(f"FEN {b.fen()}")
     if args.open:
@@ -198,8 +202,14 @@ def main(argv=None):
     p.add_argument("--days", type=int, help="last N days")
     p.add_argument("--max", type=int, help="max games per source")
 
+    p = sub.add_parser("import", help="import over-the-board games from a Lichess study or PGN file")
+    p.add_argument("ref", help="Lichess study URL/id or path.pgn")
+    p.add_argument("--tc", required=True, help="TimeControl like 600+5, or a time class: rapid, classical")
+    p.add_argument("--color", choices=["white", "black"], help="your colour where the PGN doesn't name players")
+    p.add_argument("--results", help="results in chapter order where the PGN has '*', e.g. '1-0,0-1,1/2-1/2'")
+
     p = sub.add_parser("games", help="list stored games (newest first)")
-    p.add_argument("--source", choices=["lichess", "chesscom"])
+    p.add_argument("--source", choices=["lichess", "chesscom", "otb"])
     p.add_argument("--result", choices=["win", "loss", "draw"])
     p.add_argument("--tc", help="time class: bullet, blitz, rapid, classical, daily")
     p.add_argument("--color", choices=["white", "black"])
@@ -229,7 +239,7 @@ def main(argv=None):
     p.add_argument("--since", help="YYYY-MM-DD")
     p.add_argument("--tc", help="time class filter")
 
-    p = sub.add_parser("show", help="render a position to out/board.html (self-refreshing page)")
+    p = sub.add_parser("show", help="show one position on the live board (falls back to out/board.html)")
     add_position_args(p)
     p.add_argument("--best", help="green arrow (SAN or e2e4)")
     p.add_argument("--played", help="red arrow (SAN or e2e4)")
@@ -238,6 +248,8 @@ def main(argv=None):
     p.add_argument("--white", action="store_true", help="force White at the bottom")
     p.add_argument("--black", action="store_true", help="force Black at the bottom")
     p.add_argument("--open", action="store_true", help="open in the browser (needed once per session)")
+
+    add_board_parser(sub)
 
     p = sub.add_parser("report", help="HTML report of a reviewed game (boards, eval curve, coach notes)")
     p.add_argument("game")
@@ -248,8 +260,8 @@ def main(argv=None):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # quiet exit when piped into head/less
     cfg = load_config()
     {
-        "doctor": cmd_doctor, "fetch": cmd_fetch, "games": cmd_games, "analyze": cmd_analyze,
-        "review": cmd_review, "stats": cmd_stats, "show": cmd_show, "report": cmd_report,
+        "doctor": cmd_doctor, "fetch": cmd_fetch, "import": cmd_import, "games": cmd_games, "analyze": cmd_analyze,
+        "review": cmd_review, "stats": cmd_stats, "show": cmd_show, "report": cmd_report, "board": cmd_board,
     }[args.cmd](args, cfg)
 
 

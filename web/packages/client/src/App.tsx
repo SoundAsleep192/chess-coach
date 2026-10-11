@@ -1,0 +1,114 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { NodeId } from '@board/shared';
+import { BoardView } from './BoardView';
+import { MoveList } from './MoveList';
+import { PromotionPicker } from './PromotionPicker';
+import { dropToMove, promotionUci, type PromotionPiece } from './moves';
+import { navTarget, type NavKey } from './nav';
+import { useBoardSocket, type SocketFactory } from './useBoardSocket';
+
+const KEYS: Record<string, NavKey> = {
+  ArrowLeft: 'prev',
+  ArrowRight: 'next',
+  Home: 'start',
+  End: 'end',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+};
+
+const ERROR_TEXT: Record<string, string> = {
+  frozen: 'Доска заморожена тренером',
+  illegal: 'Нелегальный ход',
+  forbidden: 'Эту ветку удалить нельзя',
+  not_found: 'Позиция уже изменилась, доска обновлена',
+  storage: 'Ошибка хранения на сервере',
+  bad_request: 'Сервер отклонил запрос',
+};
+
+export function App({ socket }: { socket?: SocketFactory }) {
+  const { state, connected, error, send } = useBoardSocket(socket);
+  const [flipped, setFlipped] = useState(false);
+  const [pending, setPending] = useState<{ parentId: NodeId; from: string; to: string } | null>(null);
+  const frozen = state?.mode !== 'free';
+  // Без связи send молча теряет сообщения, поэтому действия блокируем так же, как при заморозке.
+  const locked = frozen || !connected;
+
+  const go = useCallback(
+    (key: NavKey) => {
+      if (!state || locked) return;
+      const target = navTarget(state, key);
+      if (target) send({ event: 'navigate', data: { nodeId: target } });
+    },
+    [state, locked, send],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const key = KEYS[e.key];
+      if (!key) return;
+      e.preventDefault();
+      go(key);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go]);
+
+  if (!state) {
+    return <div className="status offline">{connected ? 'Загрузка доски…' : 'Нет связи с доской, переподключаюсь…'}</div>;
+  }
+
+  const node = state.nodes[state.cursor];
+  const orientation = flipped ? (state.orientation === 'white' ? 'black' : 'white') : state.orientation;
+
+  const onDrop = (from: string, to: string) => {
+    if (locked) return;
+    const result = dropToMove(node.fen, from, to);
+    if (result.kind === 'move') send({ event: 'move', data: { parentId: node.id, uci: result.uci } });
+    if (result.kind === 'promotion') setPending({ parentId: node.id, from, to });
+  };
+
+  const onPromote = (piece: PromotionPiece) => {
+    if (pending && !locked) {
+      send({ event: 'move', data: { parentId: pending.parentId, uci: promotionUci(pending.from, pending.to, piece) } });
+    }
+    setPending(null);
+  };
+
+  return (
+    <div className="app">
+      <div className={`status ${connected ? (frozen ? 'frozen' : 'free') : 'offline'}`} role="status" data-testid="mode-banner">
+        {!connected ? 'Нет связи, переподключаюсь…' : frozen ? 'Заморожено тренером' : 'Свободный просмотр'}
+        {error && <span className="error"> · {ERROR_TEXT[error.code] ?? error.message}</span>}
+      </div>
+      <main className="layout">
+        <section className="board-col">
+          <BoardView node={node} orientation={orientation} canMove={!locked} onDrop={onDrop} />
+          {node.caption && <div className="caption">{node.caption}</div>}
+          <div className="controls">
+            <button type="button" aria-label="в начало" disabled={locked} onClick={() => go('start')}>⏮</button>
+            <button type="button" aria-label="назад" disabled={locked} onClick={() => go('prev')}>◀</button>
+            <button type="button" aria-label="вперёд" disabled={locked} onClick={() => go('next')}>▶</button>
+            <button type="button" aria-label="в конец" disabled={locked} onClick={() => go('end')}>⏭</button>
+            <button type="button" aria-label="перевернуть" onClick={() => setFlipped((f) => !f)}>⇅</button>
+          </div>
+        </section>
+        <aside className="moves-col">
+          {state.meta.title && <h1 className="title">{state.meta.title}</h1>}
+          <MoveList
+            state={state}
+            disabled={locked}
+            onSelect={(nodeId) => !locked && send({ event: 'navigate', data: { nodeId } })}
+            onDelete={(nodeId) => !locked && send({ event: 'deleteBranch', data: { nodeId } })}
+          />
+        </aside>
+      </main>
+      {pending && (
+        <PromotionPicker
+          color={node.fen.split(' ')[1] === 'w' ? 'w' : 'b'}
+          onPick={onPromote}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </div>
+  );
+}

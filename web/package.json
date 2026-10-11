@@ -1,0 +1,23 @@
+{
+  "name": "board-web",
+  "private": true,
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "npm run build -w @board/server && concurrently -k -n tsc,server,client \"npm run watch -w @board/server\" \"npm run start:dev -w @board/server\" \"npm run dev -w @board/client\""
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "concurrently": "10.0.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

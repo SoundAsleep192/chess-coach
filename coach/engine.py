@@ -133,13 +133,23 @@ def analyse(
 _MOVE_NO = re.compile(r"^\d+\.+")
 
 
+def _move_tokens(text: str):
+    """Yield (raw, token) for each move in '1. e4 e5, 2... Nf3'; move numbers, '...' and '*' are skipped."""
+    for raw in text.replace(",", " ").split():
+        tok = _MOVE_NO.sub("", raw).rstrip("!?")
+        if tok and tok not in ("...", "*"):
+            yield raw, tok
+
+
+def split_moves(text: str) -> list[str]:
+    """'43... Kd6 44. Ne2, Ne5' -> ['Kd6', 'Ne2', 'Ne5']."""
+    return [tok for _, tok in _move_tokens(text)]
+
+
 def apply_moves(board: chess.Board, moves: str) -> chess.Board:
     """Apply a space-separated list of SAN/UCI moves (move numbers allowed). Raises ValueError on illegal moves."""
     b = board.copy()
-    for raw in moves.replace(",", " ").split():
-        tok = _MOVE_NO.sub("", raw)
-        if not tok or tok in ("...", "*"):
-            continue
+    for raw, tok in _move_tokens(moves):
         try:
             mv = b.parse_san(tok)
         except ValueError:

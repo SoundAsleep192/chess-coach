@@ -5,3 +5,9 @@ out/
 engines/
 data/games/
 .DS_Store
+data/otb/
+web/node_modules/
+web/packages/*/node_modules/
+web/packages/*/dist/
+data/reviews/*.json
+!data/reviews/*.notes.json

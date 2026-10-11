@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "board",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "--build", "board"],
+      "port": 8765
+    },
+    {
+      "name": "board-file",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "out"],
+      "port": 8765
+    }
+  ]
+}

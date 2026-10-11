@@ -47,7 +47,32 @@ uv run coach analyze start --time 2
 
 `doctor` должен показать Stockfish 19, `analyze` — три линии с оценками.
 
-## 5. Готово
+## 5. Доска
+
+Нужны Docker Desktop с Compose v2 и Node 24.21.0 (версия записана в `.node-version`, fnm переключается на неё сам; Node нужен для разработки и тестов доски, сама доска работает в Docker).
+
+```bash
+docker --version
+docker compose version
+node --version
+docker compose build board
+docker compose up -d board
+curl -s http://127.0.0.1:8765/api/health
+```
+
+Ответ `{"ok":true}`. Остановить: `docker compose stop`. Дерево хранится в томе `chess-coach_board-mongo` и переживает перезапуск. `docker compose down -v` удаляет его вместе с томом. На занятии доску запускает `preview_start` с именем `board`.
+
+Разработка доски:
+
+```bash
+(cd web && npm ci && npm test)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d mongo
+cd web && npm run dev
+```
+
+Клиент с горячей перезагрузкой на `http://127.0.0.1:5173`, сервер на 8765, база на `127.0.0.1:27018`. Тесты Python: `uv run pytest`.
+
+## 6. Готово
 
 Проверь, что `uv run coach fetch --days 7` скачивает партии: Lichess и chess.com должны быть доступны из сети. Потом запусти скилл `build-profile`, это первое занятие.
 

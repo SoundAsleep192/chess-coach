@@ -127,10 +127,36 @@ def variation_lines(state: dict) -> list[str]:
     return rows
 
 
+def puzzle_line(state: dict) -> str | None:
+    """The puzzle on the board for the coach: status, phase, mistakes, the banner text, the answer after giving up."""
+    pz = state.get("puzzle")
+    if not pz:
+        return None
+    parts = [f"puzzle {pz['puzzleId']} ({pz['label']}): {pz['status']}", f"phase {pz.get('phase', '-')}",
+             f"errors {pz.get('errors', 0)}"]
+    if pz.get("weaker"):
+        parts.append(f"weaker {pz['weaker']}")
+    if pz.get("altBetter"):
+        parts.append("stronger than the book")
+    if pz.get("classification"):
+        parts.append(pz["classification"])
+    if pz.get("bonus"):
+        parts.append("second solution run")
+    line = ", ".join(parts)
+    if pz.get("feedback"):
+        line += f" | {pz['feedback']['text']}"
+    if pz.get("answer"):
+        line += f" | answer {pz['answer']}"
+    return line
+
+
 def print_state(client: BoardClient) -> None:
     print(client.pgn().rstrip())
     state = client.state()
     print(position_line(state))
+    puzzle = puzzle_line(state)
+    if puzzle:
+        print(puzzle)
     rows = variation_lines(state)
     print("variations:" if rows else "variations: none")
     for row in rows:

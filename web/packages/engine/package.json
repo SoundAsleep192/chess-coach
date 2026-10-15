@@ -1,0 +1,26 @@
+{
+  "name": "@board/engine",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@board/shared": "*",
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "chess.js": "1.4.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "12.1.2",
+    "@types/express": "5.0.6",
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1"
+  }
+}

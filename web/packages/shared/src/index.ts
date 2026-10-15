@@ -1,6 +1,6 @@
 export type NodeId = string;
 export type Author = 'game' | 'coach' | 'student';
-export type Mode = 'frozen' | 'free';
+export type Mode = 'frozen' | 'free' | 'puzzle';
 export type Orientation = 'white' | 'black';
 export type ArrowColor = 'green' | 'red' | 'blue';
 
@@ -46,6 +46,8 @@ export interface BoardState extends Tree {
   orientation: Orientation;
   meta: BoardMeta;
   updatedAt: string;
+  /** Задача на доске (режим puzzle) или итог последней задачи. */
+  puzzle?: PuzzleSession;
 }
 
 export type ErrorCode = 'illegal' | 'frozen' | 'not_found' | 'forbidden' | 'storage' | 'bad_request';
@@ -65,10 +67,15 @@ export type ServerMessage =
 export interface NavigateData { nodeId: NodeId }
 export interface MoveData { parentId: NodeId; uci: string }
 export interface DeleteBranchData { nodeId: NodeId }
+/** Кнопки задачи: «Ещё раз», «Показать решение», «Найти другое». */
+export type PuzzleCommand = Record<string, never>;
 export type ClientMessage =
   | { event: 'navigate'; data: NavigateData }
   | { event: 'move'; data: MoveData }
-  | { event: 'deleteBranch'; data: DeleteBranchData };
+  | { event: 'deleteBranch'; data: DeleteBranchData }
+  | { event: 'puzzleRetry'; data: PuzzleCommand }
+  | { event: 'puzzleGiveUp'; data: PuzzleCommand }
+  | { event: 'puzzleAnother'; data: PuzzleCommand };
 
 // HTTP: тренер -> сервер
 export type At = number | NodeId;
@@ -86,3 +93,145 @@ export interface ReplaceBody {
 export interface AddLineBody { at: At; moves: string[]; caption?: string }
 export interface CursorBody { at: At; arrows?: Arrow[]; caption?: string }
 export interface ModeBody { mode: Mode }
+
+// Задачи (этап 3)
+export type PuzzleSource = 'lichess' | 'polgar' | 'raduga';
+export type SolutionFrom = 'lichess' | 'book' | 'engine';
+
+/** Документ коллекции `puzzles`. `fen` - позиция с ходом решающего, `solution` - UCI: решающий, соперник, решающий, ... */
+export interface PuzzleDoc {
+  _id: string;
+  source: PuzzleSource;
+  fen: string;
+  solution: string[];
+  themes: string[];
+  themesRaw?: string[];
+  rating?: number;
+  ref?: string;
+  /** Страница PDF книги. */
+  page?: number;
+  solutionFrom: SolutionFrom;
+  disputed?: boolean;
+}
+
+export type PuzzleStatus = 'solving' | 'solved' | 'failed';
+/** move - ждём ход решающего; checking - ход на доске, движок его оценивает; reply - ждём ответ соперника; feedback - после ошибки или хода «слабее» ждём «Ещё раз». */
+export type PuzzlePhase = 'move' | 'checking' | 'reply' | 'feedback';
+export type FeedbackKind = 'correct' | 'wrong' | 'weaker' | 'repeat' | 'unavailable';
+export type PuzzleClassification = 'single' | 'multiple' | 'main+weaker';
+
+export interface PuzzleFeedback {
+  kind: FeedbackKind;
+  /** Текст плашки: «Верно, продолжайте», описание ошибки, «Хороший ход, но есть сильнее...». */
+  text: string;
+}
+
+/** Задача на доске. */
+export interface PuzzleSession {
+  puzzleId: string;
+  label: string;
+  side: Orientation;
+  /** Записанное решение, UCI: решающий, соперник, решающий, ... */
+  solution: string[];
+  /** Сколько полуходов сыграно от корня по текущему пути. */
+  done: number;
+  status: PuzzleStatus;
+  startedAt: string;
+  phase: PuzzlePhase;
+  /** Узел, где ходит решающий (или ходил, когда сделал проверяемый ход). */
+  node: NodeId;
+  /** Ученик идёт по записанному решению; после равноценной альтернативы - false, ожидаемый ход даёт движок. */
+  onMain: boolean;
+  feedback?: PuzzleFeedback;
+  errors: number;
+  weaker: number;
+  /** Ученик сыграл ход сильнее записанного решения. */
+  altBetter: boolean;
+  /** Попытка уже записана в историю FSRS. */
+  recorded: boolean;
+  /** Другие первые ходы, равноценные первому ходу решения или сильнее его (UCI). */
+  rootAlternatives: string[];
+  /** Первые ходы, которыми задача уже решена в этой сессии. */
+  found: string[];
+  classification?: PuzzleClassification;
+  /** Заход «Найти другое»: в историю не пишется. */
+  bonus: boolean;
+  /** Ответ соперника, который сервер сыграет в фазе reply (UCI). */
+  reply?: string;
+  /** Проверяемый (в фазе feedback - последний оценённый) ход ученика; created - узел появился ради этой проверки. */
+  checking?: { moveNode: NodeId; created: boolean };
+  /** После «Показать решение»: решение в SAN с номерами ходов. */
+  answer?: string;
+}
+
+export type PuzzleGrade = 'Again' | 'Hard' | 'Good';
+
+export interface PuzzleAttempt {
+  at: string;
+  correct: boolean;
+  ms: number;
+  grade: PuzzleGrade;
+}
+
+export interface PuzzleNextBody {
+  id?: string;
+  theme?: string;
+  themes?: string[];
+  source?: PuzzleSource;
+  rating?: number;
+}
+
+export interface PuzzleInfo {
+  id: string;
+  source: PuzzleSource;
+  ref?: string;
+  page?: number;
+  themes: string[];
+  rating?: number;
+  side: Orientation;
+  kind: 'due' | 'new' | 'id';
+  label: string;
+}
+
+export interface PuzzleNextResponse {
+  puzzle: PuzzleInfo;
+  state: BoardState;
+}
+
+export interface StatsRow {
+  key: string;
+  attempts: number;
+  solved: number;
+}
+
+export interface PuzzleStats {
+  since: string | null;
+  total: { attempts: number; solved: number };
+  byTheme: StatsRow[];
+  bySource: StatsRow[];
+  recent: {
+    id: string;
+    ref?: string;
+    source: PuzzleSource;
+    at: string;
+    correct: boolean;
+    ms: number;
+    weaker?: number;
+    altBetter?: boolean;
+  }[];
+  queue: { id: string; ref?: string; due: string; lastCorrect: boolean }[];
+  counts: { source: PuzzleSource; puzzles: number; disputed: number }[];
+}
+
+export interface ThemeCount {
+  theme: string;
+  count: number;
+}
+
+export interface NoPuzzlePayload extends ErrorPayload {
+  available: ThemeCount[];
+}
+
+export * from './engine.ts';
+export * from './material.ts';
+export * from './puzzle.ts';

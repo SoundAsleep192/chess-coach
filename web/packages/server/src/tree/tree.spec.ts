@@ -10,6 +10,7 @@ import {
   mainLineNodeAtPly,
   pathTo,
   plyFromFen,
+  promote,
   toPgn,
 } from './tree';
 import { TreeError } from './tree-error';
@@ -226,5 +227,18 @@ describe('toPgn', () => {
     const t0 = fromGame({ moves: ['e4'] });
     const s = addMove(t0, t0.cursor, 'e7e5', 'student');
     expect(toPgn(s.tree)).toBe('1. e4 e5 {ученик} *\n');
+  });
+});
+
+describe('promote', () => {
+  it('moves a variation to the front so it becomes the main line, and leaves the root alone', () => {
+    const base = fromGame({ moves: ['e4', 'e5'] });
+    const { tree, node: d4 } = addMove(base, base.rootId, 'd2d4', 'student');
+    expect(sans(mainLine(tree).slice(1))).toBe('e4 e5');
+    const promoted = promote(tree, d4.id);
+    expect(sans(mainLine(promoted).slice(1))).toBe('d4');
+    expect(promoted.nodes[promoted.rootId].children).toHaveLength(2);
+    expect(sans(mainLine(tree).slice(1))).toBe('e4 e5');
+    expect(promote(promoted, promoted.rootId)).toEqual(promoted);
   });
 });

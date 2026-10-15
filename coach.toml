@@ -22,3 +22,12 @@ deep_time = 3.0
 inaccuracy = 5.0
 mistake = 10.0
 blunder = 15.0
+
+[puzzles]
+# Default themes for `coach puzzles next` (Lichess names). The coach fills them from the profile, see CLAUDE.md
+themes = ["hangingPiece", "trappedPiece", "defensiveMove", "fork", "pin", "skewer", "discoveredAttack",
+          "deflection", "attraction", "doubleCheck", "mate", "long", "veryLong"]
+# Lichess puzzles are picked near this rating (Lichess blitz from profile/player.md)
+rating = 1450
+# The student's own books (Polgar, «Радуга»). Data extracted from them stays in data/books/, never in git
+books_dir = "/Users/nisakhanov/Desktop/мои_книги_шахматы"

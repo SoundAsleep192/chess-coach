@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import type {
   AddLineBody,
@@ -6,10 +6,10 @@ import type {
   BoardNode,
   BoardState,
   CursorBody,
+  EngineLine,
   Mode,
   NodeId,
   ReplaceBody,
-  Tree,
 } from '@board/shared';
 import { BoardRepository } from '../storage/board-repository';
 import {
@@ -22,26 +22,55 @@ import {
   mainLineNodeAtPly,
   toPgn,
 } from '../tree/tree';
+import {
+  another,
+  applyUnavailable,
+  applyVerdict,
+  giveUp,
+  pendingCheck,
+  playMove,
+  playReply,
+  retry,
+  startSession,
+  treeOf,
+  type CheckRequest,
+  type PuzzleResult,
+  type PuzzleStart,
+  type ReplyGuard,
+  type Step,
+} from '../puzzles/puzzle-flow';
+import { PuzzleSolver } from '../puzzles/puzzle-solver';
 import { TreeError } from '../tree/tree-error';
 import { BoardError } from './board-error';
 
-function treeOf(state: BoardState): Tree {
-  const { rootFen, rootId, nodes, cursor, seq } = state;
-  return { rootFen, rootId, nodes, cursor, seq };
-}
-
 @Injectable()
-export class BoardService implements OnModuleInit {
+export class BoardService implements OnModuleInit, OnApplicationShutdown {
   readonly changes = new Subject<BoardState>();
   private state!: BoardState;
   private queue: Promise<unknown> = Promise.resolve();
+  readonly puzzleFinished = new Subject<PuzzleResult>();
+  private replyTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly replyMs = Number(process.env.PUZZLE_REPLY_MS ?? 500);
+  private closed = false;
 
-  constructor(private readonly repo: BoardRepository) {}
+  constructor(
+    private readonly repo: BoardRepository,
+    private readonly solver: PuzzleSolver,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     const saved = await this.repo.load();
+    if (saved && saved.puzzle && !saved.puzzle.phase) {
+      // сессия задачи формата v1 (без phase): не продолжаем, доска остаётся с деревом
+      saved.mode = saved.mode === 'puzzle' ? 'free' : saved.mode;
+      saved.puzzle = undefined;
+    }
     if (saved) {
       this.state = saved;
+      // перезапуск во время проверки хода: проверить заново; во время ответа соперника - снова завести таймер
+      const check = pendingCheck(saved);
+      if (check) this.runCheck(check);
+      this.afterPuzzleChange();
       return;
     }
     const tree = fromGame({});
@@ -95,9 +124,19 @@ export class BoardService implements OnModuleInit {
         ...s,
         ...tree,
         orientation: body.orientation ?? s.orientation,
+        mode: s.mode === 'puzzle' ? 'free' : s.mode,
+        puzzle: undefined,
         meta: { title: body.title, gameId: body.gameId, plyOffset: tree.nodes[tree.rootId].ply },
       };
     });
+  }
+
+  /** Задача на доске: корень - позиция задачи, ход решающего снизу. Анализ корня - до первого состояния, не дольше PUZZLE_ROOT_MS. */
+  async startPuzzle(p: PuzzleStart): Promise<BoardState> {
+    const root = await this.solver.rootInfo(p.fen, p.solution[0]);
+    const state = await this.mutate((s) => startSession(s, p, root, new Date()));
+    this.afterPuzzleChange();
+    return state;
   }
 
   addCoachLine(body: AddLineBody): Promise<BoardState> {
@@ -125,7 +164,7 @@ export class BoardService implements OnModuleInit {
   setMode(mode: Mode): Promise<BoardState> {
     return this.mutate((s) => {
       if (mode !== 'free' && mode !== 'frozen') throw new BoardError('bad_request', `bad mode ${String(mode)}`);
-      return { ...s, mode };
+      return { ...s, mode, puzzle: undefined };
     });
   }
 
@@ -142,14 +181,42 @@ export class BoardService implements OnModuleInit {
   }
 
   studentMove(parentId: NodeId, uci: string): Promise<BoardState> {
-    return this.mutate((s) => {
+    return this.step((s) => {
+      if (s.mode === 'puzzle' && s.puzzle?.status === 'solving') {
+        const node = s.nodes[s.puzzle.node];
+        const lines = node ? this.solver.cachedLines(node.fen) : undefined;
+        return playMove(s, parentId, uci, lines?.[0], new Date(), lines);
+      }
       this.assertFree(s);
       if (!s.nodes[parentId]) {
         throw new BoardError('not_found', `node ${parentId} not found (the board was probably replaced)`);
       }
       const { tree, node } = addMove(treeOf(s), parentId, uci, 'student');
-      return { ...s, ...tree, cursor: node.id };
+      return { state: { ...s, ...tree, cursor: node.id }, finished: null };
     });
+  }
+
+  /** «Ещё раз» после ошибки или хода «слабее». */
+  puzzleRetry(): Promise<BoardState> {
+    return this.step((s) => ({ state: retry(s), finished: null }));
+  }
+
+  /** «Показать решение». Вне записанной линии нужна линия движка из узла: она берётся до изменения состояния. */
+  async puzzleGiveUp(): Promise<BoardState> {
+    const pz = this.state.puzzle;
+    let best: EngineLine | undefined;
+    if (pz?.status === 'solving' && !pz.onMain && !pz.bonus && pz.phase !== 'reply' && this.state.nodes[pz.node]) {
+      best = await this.solver.best(this.state.nodes[pz.node].fen).catch((e: unknown) => {
+        console.error(`board: cannot get the engine line to show for ${pz.puzzleId}: ${e instanceof Error ? e.message : String(e)}`);
+        return undefined;
+      });
+    }
+    return this.step((s) => giveUp(s, best, new Date()));
+  }
+
+  /** «Найти другое» после решения. */
+  puzzleAnother(): Promise<BoardState> {
+    return this.step((s) => ({ state: another(s), finished: null }));
   }
 
   studentDelete(nodeId: NodeId): Promise<BoardState> {
@@ -163,8 +230,71 @@ export class BoardService implements OnModuleInit {
     });
   }
 
+  onApplicationShutdown(): void {
+    this.closed = true;
+    clearTimeout(this.replyTimer);
+  }
+
+  /** Изменение с шагом задачи: после записи - попытка в историю, проверка хода движком, ответ соперника, анализ узла. */
+  private step(change: (s: BoardState) => Step): Promise<BoardState> {
+    let step: Step | null = null;
+    return this.mutate((s) => {
+      step = change(s);
+      return step.state;
+    }).then((state) => {
+      this.afterStep(step);
+      return state;
+    });
+  }
+
+  private afterStep(step: Step | null): void {
+    if (!step) return;
+    if (step.finished) this.puzzleFinished.next(step.finished);
+    if (step.check) this.runCheck(step.check);
+    this.afterPuzzleChange();
+  }
+
+  /** Оценка хода движком вне очереди изменений; вердикт - вторым изменением, только для той же задачи и того же хода. */
+  private runCheck(req: CheckRequest): void {
+    this.solver
+      .verdict(req)
+      .then(
+        (v) => {
+          if (this.closed) return;
+          return this.step((s) => applyVerdict(s, req, v, new Date()));
+        },
+        (e: unknown) => {
+          if (this.closed) return;
+          console.error(`board: cannot check ${req.uci} in ${req.puzzleId}: ${e instanceof Error ? e.message : String(e)}`);
+          return this.mutate((s) => applyUnavailable(s, req)).then(() => this.afterPuzzleChange());
+        },
+      )
+      .catch((e: unknown) => {
+        if (!this.closed) console.error(`board: cannot apply the check of ${req.uci} in ${req.puzzleId}: ${String(e)}`);
+      });
+  }
+
+  /** Фаза reply - ответ соперника через replyMs; фаза move - анализ нового узла заранее. */
+  private afterPuzzleChange(): void {
+    const pz = this.state.puzzle;
+    if (this.closed || this.state.mode !== 'puzzle' || pz?.status !== 'solving') return;
+    if (pz.phase === 'reply') {
+      const guard: ReplyGuard = { puzzleId: pz.puzzleId, startedAt: pz.startedAt, done: pz.done };
+      clearTimeout(this.replyTimer);
+      this.replyTimer = setTimeout(() => {
+        this.step((s) => playReply(s, guard, new Date())).catch((e: unknown) =>
+          console.error(`board: cannot play the opponent reply for ${guard.puzzleId}: ${String(e)}`),
+        );
+      }, this.replyMs);
+    } else if (pz.phase === 'move') {
+      const node = this.state.nodes[pz.node];
+      if (node) this.solver.prefetch(node.fen);
+    }
+  }
+
   private assertFree(s: BoardState): void {
     if (s.mode === 'frozen') throw new BoardError('frozen', 'the board is frozen by the coach');
+    if (s.mode === 'puzzle') throw new BoardError('frozen', 'a puzzle is being solved: only a move from the puzzle position counts');
   }
 
   private resolveAt(s: BoardState, at: At): BoardNode {
@@ -194,6 +324,7 @@ export class BoardService implements OnModuleInit {
         if (e instanceof TreeError) throw new BoardError(e.code, e.message);
         throw e;
       }
+      if (next === this.state) return next;
       next = { ...next, version: this.state.version + 1, updatedAt: new Date().toISOString() };
       try {
         await this.repo.save(next);

@@ -5,6 +5,8 @@ COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
+COPY packages/puzzles/package.json packages/puzzles/
+COPY packages/engine/package.json packages/engine/
 RUN npm ci
 COPY . .
 RUN npm run build
@@ -16,6 +18,8 @@ COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
+COPY packages/puzzles/package.json packages/puzzles/
+COPY packages/engine/package.json packages/engine/
 RUN npm ci --omit=dev && npm cache clean --force
 COPY packages/shared/src packages/shared/src
 COPY --from=build /app/packages/server/dist packages/server/dist

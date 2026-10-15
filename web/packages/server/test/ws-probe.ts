@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import type { ServerMessage } from '@board/shared';
+import type { BoardState, ServerMessage } from '@board/shared';
 
 /** WebSocket-клиент для тестов: складывает сообщения в очередь и отдаёт по одному. */
 export class WsProbe {
@@ -36,6 +36,15 @@ export class WsProbe {
         resolve(m);
       });
     });
+  }
+
+  /** Пропускать сообщения, пока не придёт состояние, для которого pred верно. */
+  async until(pred: (s: BoardState) => boolean, timeoutMs = 3000): Promise<BoardState> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const msg = await this.next(Math.max(1, deadline - Date.now()));
+      if (msg.event === 'state' && pred(msg.data)) return msg.data;
+    }
   }
 
   send(event: string, data: unknown): void {

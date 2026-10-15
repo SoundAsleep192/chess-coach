@@ -4,7 +4,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "vitest.config.ts"]
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -38,6 +38,8 @@ class Config:
     inaccuracy: float = 5.0
     mistake: float = 10.0
     blunder: float = 15.0
+    puzzle_themes: list[str] = field(default_factory=list)
+    puzzle_rating: int | None = None
 
     @property
     def usernames(self) -> set[str]:
@@ -53,6 +55,7 @@ def load_config() -> Config:
     player = data.get("player", {})
     engine = data.get("engine", {})
     review = data.get("review", {})
+    puzzles = data.get("puzzles", {})
     cfg.lichess = player.get("lichess", cfg.lichess)
     cfg.chesscom = player.get("chesscom", cfg.chesscom)
     cfg.otb_name = player.get("otb_name", cfg.otb_name)
@@ -64,6 +67,9 @@ def load_config() -> Config:
     cfg.inaccuracy = float(review.get("inaccuracy", cfg.inaccuracy))
     cfg.mistake = float(review.get("mistake", cfg.mistake))
     cfg.blunder = float(review.get("blunder", cfg.blunder))
+    cfg.puzzle_themes = [str(t) for t in puzzles.get("themes", [])]
+    if puzzles.get("rating") is not None:
+        cfg.puzzle_rating = int(puzzles["rating"])
     return cfg
 
 

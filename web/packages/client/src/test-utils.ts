@@ -1,8 +1,32 @@
 import { Chess } from 'chess.js';
-import type { Author, BoardNode, BoardState, Mode, NodeId, ServerMessage } from '@board/shared';
+import type { Author, BoardNode, BoardState, Mode, NodeId, PuzzleSession, ServerMessage } from '@board/shared';
 import type { SocketLike } from './useBoardSocket';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/** Сессия задачи «вилка» (Дорофеева, т.1 №1) в фазе move; поля можно переопределить. */
+export function puzzleSession(over: Partial<PuzzleSession> = {}): PuzzleSession {
+  return {
+    puzzleId: 'raduga:1-001',
+    label: 'Дорофеева, т.1 №1',
+    side: 'white',
+    solution: ['d5c7', 'e8d7', 'c7a8'],
+    done: 0,
+    status: 'solving',
+    startedAt: '2026-10-11T10:00:00.000Z',
+    phase: 'move',
+    node: 'n1',
+    onMain: true,
+    errors: 0,
+    weaker: 0,
+    altBetter: false,
+    recorded: false,
+    rootAlternatives: [],
+    found: [],
+    bonus: false,
+    ...over,
+  };
+}
 
 /** Построитель состояния для тестов: ходы в SAN, id узлов n1 (корень), n2, ... */
 export class StateBuilder {

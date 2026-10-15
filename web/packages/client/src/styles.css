@@ -1,8 +1,8 @@
 :root { --bg:#f6f4ef; --fg:#1d1d1f; --muted:#6b6b6b; --card:#ffffff; --line:#e3e0d8;
-  --student:#3b7dd8; --coach:#a35fd0; --current:#f2d264; --frozen:#d64545; --free:#3fa34d; }
+  --student:#3b7dd8; --coach:#a35fd0; --current:#f2d264; --frozen:#d64545; --free:#3fa34d; --weaker:#b7860b; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#17181a; --fg:#ececec; --muted:#9a9a9a; --card:#202225; --line:#33363a;
-    --student:#6ea8ff; --coach:#c792ea; --current:#7a6420; }
+    --student:#6ea8ff; --coach:#c792ea; --current:#7a6420; --weaker:#e0b84a; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -33,3 +33,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple
 .promotion { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(0,0,0,.4); }
 .promotion button { font-size: 40px; width: 64px; height: 64px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
 .promotion .cancel { font-size: 14px; width: auto; padding: 0 12px; }
+.status.puzzle { color: var(--student); }
+.status.solved { color: var(--free); }
+.status.failed { color: var(--frozen); }
+.status.checking { color: var(--muted); }
+.status.correct, .status.solvedAlt { color: var(--free); }
+.status.weaker { color: var(--weaker); }
+.status.wrong { color: var(--frozen); }
+.status.unavailable { color: var(--muted); }
+.puzzle-controls { display: flex; gap: 6px; margin-top: 8px; }
+.puzzle-controls button { flex: 1; padding: 6px 10px; font: inherit; font-weight: 600; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.puzzle-controls button:disabled { opacity: .4; cursor: default; }

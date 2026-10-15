@@ -14,6 +14,7 @@ from .config import GAMES, REVIEWS, ROOT, find_stockfish, load_config
 from .engine import analyse, apply_moves, make_limit, open_engine
 from .boardclient import BoardClient, BoardError, BoardUnavailable
 from .boardcmd import add_board_parser, arrows_for, cmd_board, show_on_server, svg_arrow
+from .puzzlescmd import add_puzzles_parser, cmd_puzzles
 from .games import fetch, filter_games, import_otb, is_reviewed, load_index, player_color, rebuild_index, resolve_game
 from .review import format_review, review_game
 from .stats import stats_text
@@ -250,6 +251,7 @@ def main(argv=None):
     p.add_argument("--open", action="store_true", help="open in the browser (needed once per session)")
 
     add_board_parser(sub)
+    add_puzzles_parser(sub)
 
     p = sub.add_parser("report", help="HTML report of a reviewed game (boards, eval curve, coach notes)")
     p.add_argument("game")
@@ -262,6 +264,7 @@ def main(argv=None):
     {
         "doctor": cmd_doctor, "fetch": cmd_fetch, "import": cmd_import, "games": cmd_games, "analyze": cmd_analyze,
         "review": cmd_review, "stats": cmd_stats, "show": cmd_show, "report": cmd_report, "board": cmd_board,
+        "puzzles": cmd_puzzles,
     }[args.cmd](args, cfg)
 
 

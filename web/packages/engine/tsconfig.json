@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src", "test"]
+}

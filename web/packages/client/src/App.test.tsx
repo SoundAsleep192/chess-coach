@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
-import { FakeSocket, StateBuilder, fakeFactory } from './test-utils';
+import { FakeSocket, StateBuilder, fakeFactory, puzzleSession } from './test-utils';
 
 beforeEach(() => {
   FakeSocket.all = [];
@@ -87,5 +87,121 @@ describe('App', () => {
     expect(ws.sent).toEqual([]);
     expect((screen.getByRole('button', { name: 'назад' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'перевернуть' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shows the puzzle banner and blocks all browsing while the puzzle is being solved', () => {
+    const b = new StateBuilder('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1');
+    const [nc7] = b.line(b.rootId, ['Nc7+', 'Kd7'], 'game');
+    const s = b.build(nc7, 'puzzle');
+    s.puzzle = puzzleSession({ done: 1, phase: 'reply' });
+    const { container } = render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    act(() => {
+      ws.open();
+      ws.emit({ event: 'state', data: s });
+    });
+    expect(screen.getByTestId('mode-banner').textContent).toContain('Задача: Дорофеева, т.1 №1, ход белых');
+    for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) fireEvent.keyDown(window, { key });
+    for (const name of ['в начало', 'назад', 'вперёд', 'в конец']) {
+      const btn = screen.getByRole('button', { name }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      fireEvent.click(btn);
+    }
+    const moveButtons = container.querySelectorAll<HTMLButtonElement>('.moves button');
+    expect(moveButtons.length).toBeGreaterThan(0);
+    moveButtons.forEach((m) => {
+      expect(m.disabled).toBe(true);
+      fireEvent.click(m);
+    });
+    expect(ws.sent).toEqual([]);
+    act(() => ws.emit({ event: 'error', data: { code: 'frozen', message: 'wait for the opponent reply', version: 1 } }));
+    expect(screen.getByTestId('mode-banner').textContent).toContain('Во время задачи можно только ходить');
+  });
+
+  it('resets a manual board flip when the next puzzle arrives', () => {
+    const mk = (puzzleId: string) => {
+      const b = new StateBuilder('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1');
+      const s = b.build(b.rootId, 'puzzle');
+      s.puzzle = puzzleSession({ puzzleId, label: puzzleId, solution: ['d5c7'] });
+      return s;
+    };
+    const { container } = render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    const firstSquare = () => container.querySelector('[data-square]')?.getAttribute('data-square');
+    act(() => {
+      ws.open();
+      ws.emit({ event: 'state', data: mk('p1') });
+    });
+    expect(firstSquare()).toBe('a8');
+    fireEvent.click(screen.getByRole('button', { name: 'перевернуть' }));
+    expect(firstSquare()).toBe('h1');
+    act(() => ws.emit({ event: 'state', data: mk('p2') }));
+    expect(firstSquare()).toBe('a8');
+  });
+
+  it('after «Показать решение» shows the answer and lets the student browse the solution', () => {
+    const b = new StateBuilder('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1');
+    const [nc7] = b.line(b.rootId, ['Nc7+', 'Kd7', 'Nxa8'], 'game');
+    b.line(b.rootId, ['Nf6+'], 'student');
+    const s = b.build(b.rootId, 'free');
+    s.puzzle = puzzleSession({ status: 'failed', answer: '1.Nc7+ Kd7 2.Nxa8' });
+    render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    act(() => {
+      ws.open();
+      ws.emit({ event: 'state', data: s });
+    });
+    expect(screen.getByTestId('mode-banner').textContent).toContain('Решение: 1.Nc7+ Kd7 2.Nxa8');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(ws.sent).toEqual([{ event: 'navigate', data: { nodeId: nc7 } }]);
+  });
+
+  it('shows the puzzle buttons by phase and sends their commands', () => {
+    // курсор всё время в корне: react-chessboard в jsdom не умеет анимировать смену позиции
+    const b = new StateBuilder('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1');
+    render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    const emit = (puzzle: Parameters<typeof puzzleSession>[0], mode: 'puzzle' | 'free' = 'puzzle') => {
+      const s = b.build(b.rootId, mode);
+      s.puzzle = puzzleSession(puzzle);
+      act(() => ws.emit({ event: 'state', data: s }));
+    };
+    const button = (name: string) => screen.queryByRole('button', { name }) as HTMLButtonElement | null;
+    act(() => ws.open());
+    emit({ phase: 'move' });
+    expect(button('Ещё раз')).toBeNull();
+    expect(button('Показать решение')).not.toBeNull();
+    emit({ phase: 'feedback', errors: 1, feedback: { kind: 'wrong', text: 'После Nf6+ оценка −8.0 (хуже), было +9.0 (выигрыш).' } });
+    expect(screen.getByTestId('mode-banner').textContent).toContain('После Nf6+ оценка −8.0');
+    fireEvent.click(button('Ещё раз')!);
+    fireEvent.click(button('Показать решение')!);
+    emit({ status: 'solved', found: ['d5c7'], rootAlternatives: ['d5f6'] }, 'free');
+    expect(screen.getByTestId('mode-banner').textContent).toContain('Решено! Есть ещё одно решение');
+    expect(button('Показать решение')).toBeNull();
+    fireEvent.click(button('Найти другое')!);
+    expect(ws.sent).toEqual([
+      { event: 'puzzleRetry', data: {} },
+      { event: 'puzzleGiveUp', data: {} },
+      { event: 'puzzleAnother', data: {} },
+    ]);
+    emit({ status: 'solved', found: ['d5c7', 'd5f6'], rootAlternatives: ['d5f6'] }, 'free');
+    expect(button('Найти другое')).toBeNull();
+  });
+
+  it('disables the puzzle buttons without a connection', () => {
+    const b = new StateBuilder('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1');
+    render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    const s = b.build(b.rootId, 'puzzle');
+    s.puzzle = puzzleSession({ phase: 'feedback', feedback: { kind: 'weaker', text: 'Хороший ход, но есть сильнее.' } });
+    act(() => {
+      ws.open();
+      ws.emit({ event: 'state', data: s });
+    });
+    act(() => ws.onclose!());
+    const retry = screen.getByRole('button', { name: 'Ещё раз' }) as HTMLButtonElement;
+    expect(retry.disabled).toBe(true);
+    fireEvent.click(retry);
+    expect(ws.sent).toEqual([]);
   });
 });

@@ -11,3 +11,7 @@ web/packages/*/node_modules/
 web/packages/*/dist/
 data/reviews/*.json
 !data/reviews/*.notes.json
+
+# Данные купленных книг и база Lichess: только локально (этап 3, задачи)
+data/books/
+data/lichess/

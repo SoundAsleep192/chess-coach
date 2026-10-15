@@ -144,6 +144,16 @@ export function deleteBranch(tree: Tree, nodeId: NodeId): Tree {
   return t;
 }
 
+/** Сделать узел первым ребёнком родителя: его линия становится главной. У корня ничего не меняется. */
+export function promote(tree: Tree, nodeId: NodeId): Tree {
+  const t = structuredClone(tree);
+  const node = getNode(t, nodeId);
+  if (node.parent === null) return t;
+  const parent = t.nodes[node.parent];
+  parent.children = [node.id, ...parent.children.filter((c) => c !== node.id)];
+  return t;
+}
+
 export function isSubtreeBy(tree: Tree, nodeId: NodeId, author: Author): boolean {
   return subtreeIds(tree, getNode(tree, nodeId).id).every((id) => tree.nodes[id].author === author);
 }

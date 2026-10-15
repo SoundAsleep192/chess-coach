@@ -13,6 +13,27 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  engine:
+    build:
+      context: ./web
+      dockerfile: packages/engine/Dockerfile
+    image: chess-coach-engine:local
+    ports:
+      - "127.0.0.1:8766:8766"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8766"
+      ENGINE_WORKERS: "4"
+      ENGINE_HASH_MB: "64"
+      ENGINE_NODES: "1000000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8766/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   board:
     build: ./web
     image: chess-coach-board:local
@@ -20,11 +41,15 @@ services:
       - "127.0.0.1:8765:8765"
     environment:
       MONGO_URL: mongodb://mongo:27017/board
+      ENGINE_URL: http://engine:8766
       HOST: 0.0.0.0
       PORT: "8765"
     depends_on:
       mongo:
         condition: service_healthy
+      engine:
+        condition: service_started
+        required: false
     restart: unless-stopped
 
 volumes:

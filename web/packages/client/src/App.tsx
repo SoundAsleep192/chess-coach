@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { NodeId } from '@board/shared';
+import { banner, canDrag } from './banner';
 import { BoardView } from './BoardView';
 import { MoveList } from './MoveList';
 import { PromotionPicker } from './PromotionPicker';
+import { PuzzleControls } from './PuzzleControls';
 import { dropToMove, promotionUci, type PromotionPiece } from './moves';
 import { navTarget, type NavKey } from './nav';
 import { useBoardSocket, type SocketFactory } from './useBoardSocket';
@@ -29,9 +31,10 @@ export function App({ socket }: { socket?: SocketFactory }) {
   const { state, connected, error, send } = useBoardSocket(socket);
   const [flipped, setFlipped] = useState(false);
   const [pending, setPending] = useState<{ parentId: NodeId; from: string; to: string } | null>(null);
-  const frozen = state?.mode !== 'free';
+  // Листать дерево можно только в свободном режиме: при заморозке и во время решения задачи - нельзя.
   // Без связи send молча теряет сообщения, поэтому действия блокируем так же, как при заморозке.
-  const locked = frozen || !connected;
+  const locked = state?.mode !== 'free' || !connected;
+  const dragging = state ? canDrag(state, connected) : false;
 
   const go = useCallback(
     (key: NavKey) => {
@@ -41,6 +44,10 @@ export function App({ socket }: { socket?: SocketFactory }) {
     },
     [state, locked, send],
   );
+
+  // Каждая новая задача открывается со стороны решающего: ручной переворот сбрасываем.
+  const puzzleId = state?.puzzle?.puzzleId;
+  useEffect(() => setFlipped(false), [puzzleId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -61,28 +68,32 @@ export function App({ socket }: { socket?: SocketFactory }) {
   const orientation = flipped ? (state.orientation === 'white' ? 'black' : 'white') : state.orientation;
 
   const onDrop = (from: string, to: string) => {
-    if (locked) return;
+    if (!dragging) return;
     const result = dropToMove(node.fen, from, to);
     if (result.kind === 'move') send({ event: 'move', data: { parentId: node.id, uci: result.uci } });
     if (result.kind === 'promotion') setPending({ parentId: node.id, from, to });
   };
 
   const onPromote = (piece: PromotionPiece) => {
-    if (pending && !locked) {
+    if (pending && dragging) {
       send({ event: 'move', data: { parentId: pending.parentId, uci: promotionUci(pending.from, pending.to, piece) } });
     }
     setPending(null);
   };
 
+  const status = banner(state, connected);
+  const errorText = (code: string, message: string) =>
+    state.mode === 'puzzle' && code === 'frozen' ? 'Во время задачи можно только ходить' : (ERROR_TEXT[code] ?? message);
+
   return (
     <div className="app">
-      <div className={`status ${connected ? (frozen ? 'frozen' : 'free') : 'offline'}`} role="status" data-testid="mode-banner">
-        {!connected ? 'Нет связи, переподключаюсь…' : frozen ? 'Заморожено тренером' : 'Свободный просмотр'}
-        {error && <span className="error"> · {ERROR_TEXT[error.code] ?? error.message}</span>}
+      <div className={`status ${status.kind}`} role="status" data-testid="mode-banner">
+        {status.text}
+        {error && <span className="error"> · {errorText(error.code, error.message)}</span>}
       </div>
       <main className="layout">
         <section className="board-col">
-          <BoardView node={node} orientation={orientation} canMove={!locked} onDrop={onDrop} />
+          <BoardView node={node} orientation={orientation} canMove={dragging} onDrop={onDrop} />
           {node.caption && <div className="caption">{node.caption}</div>}
           <div className="controls">
             <button type="button" aria-label="в начало" disabled={locked} onClick={() => go('start')}>⏮</button>
@@ -91,6 +102,7 @@ export function App({ socket }: { socket?: SocketFactory }) {
             <button type="button" aria-label="в конец" disabled={locked} onClick={() => go('end')}>⏭</button>
             <button type="button" aria-label="перевернуть" onClick={() => setFlipped((f) => !f)}>⇅</button>
           </div>
+          {state.puzzle && <PuzzleControls puzzle={state.puzzle} disabled={!connected} send={send} />}
         </section>
         <aside className="moves-col">
           {state.meta.title && <h1 className="title">{state.meta.title}</h1>}

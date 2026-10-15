@@ -16,13 +16,14 @@ class BoardUnavailable(Exception):
 
 
 class BoardError(Exception):
-    """The server answered with an error: {code, message, version}."""
+    """The server answered with an error: {code, message, version} and, for puzzles, {available}."""
 
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, payload: dict | None = None):
         super().__init__(f"{code}: {message}")
         self.status = status
         self.code = code
         self.message = message
+        self.payload = payload or {}
 
 
 class BoardClient:
@@ -45,7 +46,8 @@ class BoardClient:
                 payload = json.loads(raw)
             except ValueError:
                 payload = {}
-            raise BoardError(e.code, payload.get("code", "http"), payload.get("message", raw or str(e.reason))) from None
+            raise BoardError(e.code, payload.get("code", "http"), payload.get("message", raw or str(e.reason)),
+                             payload) from None
         except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
             raise BoardUnavailable(f"{START_HINT} ({e})") from None
         return raw if text else json.loads(raw)
@@ -78,3 +80,10 @@ class BoardClient:
 
     def delete_node(self, node_id: str) -> dict:
         return self._request("DELETE", f"/api/board/nodes/{urllib.parse.quote(node_id)}")
+
+    def puzzle_next(self, body: dict) -> dict:
+        return self._request("POST", "/api/puzzles/next", body)
+
+    def puzzle_stats(self, since: str | None = None) -> dict:
+        query = f"?since={urllib.parse.quote(since)}" if since else ""
+        return self._request("GET", f"/api/puzzles/stats{query}")

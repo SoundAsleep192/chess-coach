@@ -1,16 +1,21 @@
 import 'reflect-metadata';
-import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { AddressInfo } from 'node:net';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type Db } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
-import type { BoardState } from '@board/shared';
+import type { BoardState, PuzzleDoc, PuzzleStats, ServerMessage } from '@board/shared';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/configure';
+import { ENGINE_CLIENT } from '../src/engine/analysis.service';
+import { FakeEngineClient } from './fake-engine';
+import { WsProbe } from './ws-probe';
 
 export const MONGO_VERSION = '9.0.2';
+/** Поддельный сервис движка на файл тестов: записи сбрасываются перед каждым тестом. */
+export const engine = new FakeEngineClient();
 export const GAME = '[White "a"]\n[Black "b"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *';
 
 export interface Running {
@@ -20,7 +25,7 @@ export interface Running {
 }
 
 export async function startApp(): Promise<Running> {
-  const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  const mod = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(ENGINE_CLIENT).useValue(engine).compile();
   const app = mod.createNestApplication<NestExpressApplication>();
   configureApp(app);
   await app.listen(0, '127.0.0.1');
@@ -49,7 +54,10 @@ export function setupBoardApp(): BoardHarness {
   beforeEach(async () => {
     const client = new MongoClient(process.env.MONGO_URL!);
     await client.db().collection('boards').deleteMany({});
+    await client.db().collection('puzzles').deleteMany({});
+    await client.db().collection('cards').deleteMany({});
     await client.close();
+    engine.reset();
     running = await startApp();
   });
   afterEach(async () => {
@@ -72,3 +80,38 @@ export function setupBoardApp(): BoardHarness {
     },
   };
 }
+
+/** Прямой доступ к базе теста: засеять задачи и карточки, проверить, что записал сервер. */
+export async function withDb<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  const client = new MongoClient(process.env.MONGO_URL!);
+  try {
+    return await fn(client.db());
+  } finally {
+    await client.close();
+  }
+}
+
+export function seed(...docs: PuzzleDoc[]): Promise<unknown> {
+  return withDb((db) => db.collection<PuzzleDoc>('puzzles').insertMany(docs));
+}
+
+/** Сообщение сервера как состояние доски. */
+export function stateOf(m: ServerMessage): BoardState {
+  expect(m.event).toBe('state');
+  return (m as { event: 'state'; data: BoardState }).data;
+}
+
+/** Засеять задачу, подключить сокет и поставить задачу на доску. */
+export async function startPuzzle(board: BoardHarness, doc: PuzzleDoc): Promise<{ ws: WsProbe; state: BoardState }> {
+  await withDb((db) => db.collection<PuzzleDoc>('puzzles').replaceOne({ _id: doc._id }, doc, { upsert: true }));
+  const ws = await WsProbe.open(board.running.wsUrl);
+  await ws.next();
+  await request(board.running.http).post('/api/puzzles/next').send({ id: doc._id }).expect(200);
+  return { ws, state: stateOf(await ws.next()) };
+}
+
+export async function puzzleStats(board: BoardHarness): Promise<PuzzleStats> {
+  return (await request(board.running.http).get('/api/puzzles/stats').expect(200)).body as PuzzleStats;
+}
+
+export const cardOf = (id: string) => withDb((db) => db.collection('cards').findOne({ _id: id } as never));

@@ -41,6 +41,21 @@ export class BoardGateway implements OnGatewayInit, OnGatewayConnection {
     return this.guard(client, () => this.board.studentDelete(data?.nodeId));
   }
 
+  @SubscribeMessage('puzzleRetry')
+  puzzleRetry(@ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.puzzleRetry());
+  }
+
+  @SubscribeMessage('puzzleGiveUp')
+  puzzleGiveUp(@ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.puzzleGiveUp());
+  }
+
+  @SubscribeMessage('puzzleAnother')
+  puzzleAnother(@ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.puzzleAnother());
+  }
+
   private async guard(client: WebSocket, action: () => Promise<unknown>): Promise<void> {
     try {
       await action();

@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter } from '@nestjs/common';
 import type { Response } from 'express';
 import { BoardError, HTTP_STATUS } from './board-error';
 import { BoardService } from './board.service';
+import { NoPuzzleError } from '../puzzles/no-puzzle.error';
 
 @Catch(BoardError)
 export class BoardErrorFilter implements ExceptionFilter {
@@ -13,6 +14,7 @@ export class BoardErrorFilter implements ExceptionFilter {
       code: error.code,
       message: error.message,
       version: this.board.current.version,
+      ...(error instanceof NoPuzzleError ? { available: error.available } : {}),
     });
   }
 }

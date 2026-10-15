@@ -85,6 +85,29 @@ def test_state_prints_pgn_cursor_and_variation_ids(fake_board, capsys):
     assert f"{d5}  1...d5  [student]  -> {d5}" in out
 
 
+def test_state_prints_the_puzzle_line_with_the_banner_text(fake_board, capsys):
+    state = make_state(["Nf6+", "Ke7"], fen="q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1", mode="puzzle")
+    state["puzzle"] = {"puzzleId": "raduga:1-1-001", "label": "Дорофеева, т.1, ч.1 №1", "side": "white",
+                       "solution": ["d5c7", "e8d7", "c7a8"], "done": 0, "status": "solving", "phase": "feedback",
+                       "node": "n1", "onMain": True, "errors": 1, "weaker": 1, "altBetter": False, "recorded": True,
+                       "rootAlternatives": [], "found": [], "classification": "single", "bonus": False,
+                       "feedback": {"kind": "wrong", "text": "После Nf6+ оценка −8.0 (хуже), было +9.0 (выигрыш)."},
+                       "startedAt": "2026-10-12T10:00:00.000Z"}
+    fake_board.route("GET", "/api/board/pgn", 200, "1. Nf6+ {ученик} Ke7 *\n")
+    fake_board.route("GET", "/api/board", 200, state)
+    main(["board", "state"])
+    out = capsys.readouterr().out
+    assert ("puzzle raduga:1-1-001 (Дорофеева, т.1, ч.1 №1): solving, phase feedback, errors 1, weaker 1, single"
+            " | После Nf6+ оценка −8.0 (хуже), было +9.0 (выигрыш).") in out
+
+
+def test_state_without_a_puzzle_prints_no_puzzle_line(fake_board, capsys):
+    fake_board.route("GET", "/api/board/pgn", 200, "1. e4 *\n")
+    fake_board.route("GET", "/api/board", 200, make_state(["e4"]))
+    main(["board", "state"])
+    assert "puzzle " not in capsys.readouterr().out
+
+
 def test_delete_calls_the_node_url(fake_board):
     fake_board.route("DELETE", "/api/board/nodes/n9", 200, make_state(["e4"]))
     main(["board", "delete", "n9"])

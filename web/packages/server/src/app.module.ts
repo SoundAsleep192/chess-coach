@@ -3,15 +3,24 @@ import { BoardController } from './board/board.controller';
 import { BoardErrorFilter } from './board/board-error.filter';
 import { BoardGateway } from './board/board.gateway';
 import { BoardService } from './board/board.service';
+import { EngineModule } from './engine/engine.module';
+import { PuzzleRepository } from './puzzles/puzzle-repository';
+import { PuzzleSolver } from './puzzles/puzzle-solver';
+import { PuzzlesController } from './puzzles/puzzles.controller';
+import { PuzzlesService } from './puzzles/puzzles.service';
 import { BoardRepository } from './storage/board-repository';
 import { MongoBoardRepository } from './storage/mongo-board-repository';
 
 @Module({
-  controllers: [BoardController],
+  imports: [EngineModule],
+  controllers: [BoardController, PuzzlesController],
   providers: [
     BoardService,
     BoardGateway,
     BoardErrorFilter,
+    PuzzleRepository,
+    PuzzleSolver,
+    PuzzlesService,
     { provide: BoardRepository, useClass: MongoBoardRepository },
   ],
 })

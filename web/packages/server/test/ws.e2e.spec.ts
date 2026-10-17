@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
+import WebSocket from 'ws';
 import type { BoardState, ServerMessage } from '@board/shared';
 import { GAME, setupBoardApp } from './helpers';
 import { WsProbe } from './ws-probe';
@@ -120,5 +121,26 @@ describe('WebSocket', () => {
     const c = await WsProbe.open(board.running.wsUrl);
     expect(stateOf(await c.next())).toMatchObject({ version: s.version, cursor: s.cursor });
     c.close();
+  });
+
+  it('rejects a foreign Origin and accepts the board origin and no origin', async () => {
+    const url = board.running.wsUrl;
+    const status = await new Promise<number>((resolve) => {
+      const ws = new WebSocket(url, { headers: { Origin: 'http://evil.example' } });
+      ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      ws.on('open', () => resolve(101));
+    });
+    expect(status).toBe(403);
+    for (const headers of [{ Origin: 'http://127.0.0.1:8765' }, {}]) {
+      const opened = await new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(url, { headers });
+        ws.on('open', () => {
+          ws.close();
+          resolve(true);
+        });
+        ws.on('unexpected-response', () => resolve(false));
+      });
+      expect(opened).toBe(true);
+    }
   });
 });

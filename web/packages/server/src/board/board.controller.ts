@@ -1,8 +1,21 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Res, UseFilters } from '@nestjs/common';
 import type { Response } from 'express';
-import type { AddLineBody, BoardState, CursorBody, ModeBody, ReplaceBody } from '@board/shared';
+import {
+  validateAddLineBody,
+  validateCursorBody,
+  validateModeBody,
+  validatePanelBody,
+  validateReplaceBody,
+  type AddLineBody,
+  type BoardState,
+  type CursorBody,
+  type ModeBody,
+  type PanelBody,
+  type ReplaceBody,
+} from '@board/shared';
 import { BoardErrorFilter } from './board-error.filter';
 import { BoardService } from './board.service';
+import { validated } from './validated';
 
 @Controller('api')
 @UseFilters(BoardErrorFilter)
@@ -27,24 +40,29 @@ export class BoardController {
   }
 
   @Put('board')
-  replace(@Body() body: ReplaceBody): Promise<BoardState> {
-    return this.board.replace(body);
+  replace(@Body() body: unknown): Promise<BoardState> {
+    return this.board.replace(validated<ReplaceBody>(body, validateReplaceBody));
   }
 
   @Post('board/lines')
   @HttpCode(200)
-  addLine(@Body() body: AddLineBody): Promise<BoardState> {
-    return this.board.addCoachLine(body);
+  addLine(@Body() body: unknown): Promise<BoardState> {
+    return this.board.addCoachLine(validated<AddLineBody>(body, validateAddLineBody));
   }
 
   @Patch('board/cursor')
-  cursor(@Body() body: CursorBody): Promise<BoardState> {
-    return this.board.setCursor(body);
+  cursor(@Body() body: unknown): Promise<BoardState> {
+    return this.board.setCursor(validated<CursorBody>(body, validateCursorBody));
   }
 
   @Patch('board/mode')
-  mode(@Body() body: ModeBody): Promise<BoardState> {
-    return this.board.setMode(body.mode);
+  mode(@Body() body: unknown): Promise<BoardState> {
+    return this.board.setMode(validated<ModeBody>(body, validateModeBody).mode);
+  }
+
+  @Patch('board/panel')
+  panel(@Body() body: unknown): Promise<BoardState> {
+    return this.board.setPanel(validated<PanelBody>(body, validatePanelBody));
   }
 
   @Delete('board/nodes/:id')

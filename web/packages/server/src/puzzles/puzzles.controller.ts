@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post, Query, UseFilters } from '@nestjs/common';
-import type { PuzzleNextBody, PuzzleNextResponse, PuzzleStats } from '@board/shared';
+import { validatePuzzleNextBody, type PuzzleNextBody, type PuzzleNextResponse, type PuzzleStats } from '@board/shared';
 import { BoardErrorFilter } from '../board/board-error.filter';
+import { validated } from '../board/validated';
 import { PuzzlesService } from './puzzles.service';
 
 @Controller('api/puzzles')
@@ -10,8 +11,8 @@ export class PuzzlesController {
 
   @Post('next')
   @HttpCode(200)
-  next(@Body() body: PuzzleNextBody): Promise<PuzzleNextResponse> {
-    return this.puzzles.next(body ?? {});
+  next(@Body() body: unknown): Promise<PuzzleNextResponse> {
+    return this.puzzles.next(validated<PuzzleNextBody>(body ?? {}, validatePuzzleNextBody));
   }
 
   @Get('stats')

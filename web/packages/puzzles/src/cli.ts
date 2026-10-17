@@ -6,6 +6,8 @@ import { alternativeMates } from './chess-utils.ts';
 import { booksDataDir, loadConfig, requireTool, type CoachConfig } from './config.ts';
 import { connectEngine } from './engine/connect.ts';
 import { DEFAULT_SOLVE } from './engine/solution.ts';
+import { importGames } from './games/import.ts';
+import { readReviews } from './games/review.ts';
 import { importLichess } from './lichess.ts';
 import { POLGAR_TOTAL } from './polgar/chapters.ts';
 import { importPolgar, readPolgar } from './polgar/import.ts';
@@ -214,6 +216,32 @@ const COMMANDS: Record<string, Command> = {
     }
     const share = report.total ? ((100 * report.imported) / report.total).toFixed(1) : '0';
     console.log(`raduga: ${report.imported} of ${report.total} diagrams in the base (${share}%), report ${report.write(dir)}`);
+  },
+
+  /** npm run import -w @board/puzzles -- games [--game ID]: ошибки из data/reviews/*.json; нужен сервис движка. */
+  games: async (args, cfg) => {
+    const { values } = parseArgs({ args, options: { game: { type: 'string' } } });
+    const dir = join(cfg.root, 'data/reviews');
+    if (values.game !== undefined && !existsSync(join(dir, `${values.game}.json`))) throw new Error(`no review data/reviews/${values.game}.json`);
+    const { reviews, bad } = readReviews(dir, values.game);
+    const engine = await connectEngine();
+    const { workers } = await engine.health();
+    const store = await PuzzleStore.open();
+    const report = new ImportReport('games');
+    for (const b of bad) report.reject(b.file, 'bad_review', b.detail);
+    try {
+      await importGames(reviews, engine, store, report, {
+        game: values.game,
+        concurrency: workers,
+        onProgress: (n) => {
+          if (n % 50 === 0) console.log(`... ${n} positions judged`);
+        },
+      });
+    } finally {
+      await store.close();
+    }
+    const path = report.write(booksDataDir(cfg), undefined, values.game !== undefined ? 'import-games-game.md' : undefined);
+    console.log(`games: ${report.imported} puzzles from ${reviews.length} reviews (${report.total} candidates, ${report.rejectedTotal} rejected); report ${path}`);
   },
 
   /** Задачи mateIn1/mateIn2, где на последнем ходу есть другой мат (для приёмки). */

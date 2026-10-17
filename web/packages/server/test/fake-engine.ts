@@ -10,6 +10,8 @@ export class FakeEngineClient implements EngineLike {
   delayMs = 0;
   /** Сервис лежит: любой запрос - EngineUnavailable. */
   down = false;
+  /** Ответ для позиций без записи; без него незаписанная позиция - движок недоступен. */
+  fallback?: Line[];
   private entries = new Map<string, EngineLine[]>();
 
   on(fen: string, lines: Line[], searchmoves?: string[]): this {
@@ -25,6 +27,7 @@ export class FakeEngineClient implements EngineLike {
     this.entries = new Map();
     this.delayMs = 0;
     this.down = false;
+    this.fallback = undefined;
   }
 
   async analyse(fen: string, opts: AnalyseOptions = {}): Promise<EngineLine[]> {
@@ -32,7 +35,7 @@ export class FakeEngineClient implements EngineLike {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     if (this.down) throw new EngineUnavailable('engine unavailable at fake: down');
     const key = `${fen}|${(opts.searchmoves ?? []).join(' ')}`;
-    const lines = this.entries.get(key);
+    const lines = this.entries.get(key) ?? this.fallback?.map((l) => ({ ...l, pv: l.pv ?? [l.move] }));
     if (!lines) throw new EngineUnavailable(`engine unavailable at fake: no entry for ${key}`);
     return lines.slice(0, opts.multipv ?? 1);
   }

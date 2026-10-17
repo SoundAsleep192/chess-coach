@@ -5,5 +5,14 @@
       "Bash(uv sync:*)",
       "Bash(sysctl -n hw.perflevel0.physicalcpu)"
     ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "uv run --quiet coach inbox --hook", "timeout": 10 }
+        ]
+      }
+    ]
   }
 }

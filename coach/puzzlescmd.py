@@ -7,6 +7,7 @@ import sys
 from .boardclient import BoardClient, BoardError, BoardUnavailable
 from .boardcmd import position_line
 from .config import Config
+from .gamespuzzles import run_import
 
 SIDE = {"white": "White", "black": "Black"}
 
@@ -82,7 +83,18 @@ def puzzles_stats(client: BoardClient, args) -> None:
     print(f"in base: {counts or 'nothing imported'}")
 
 
+def import_games() -> None:
+    ok, text = run_import()
+    if not ok:
+        print(f"import-games: {text}", file=sys.stderr)
+        raise SystemExit(1)
+    print(text)
+
+
 def cmd_puzzles(args, cfg: Config) -> None:
+    if args.puzzles_cmd == "import-games":
+        import_games()
+        return
     client = BoardClient()
     try:
         if args.puzzles_cmd == "next":
@@ -106,7 +118,8 @@ def add_puzzles_parser(sub) -> None:
     psub = p.add_subparsers(dest="puzzles_cmd", required=True)
     q = psub.add_parser("next", help="put the next puzzle on the board (due reviews first, then new ones)")
     q.add_argument("--theme", help="Lichess theme: fork, pin, mateIn2 ... (default: [puzzles].themes in coach.toml)")
-    q.add_argument("--source", choices=["lichess", "polgar", "raduga"])
-    q.add_argument("--id", help="a specific puzzle, e.g. raduga:3-021 or polgar:0123")
+    q.add_argument("--source", choices=["games", "polgar", "raduga", "lichess"])
+    q.add_argument("--id", help="a specific puzzle, e.g. raduga:3-021, polgar:0123 or games:Mp0A6gfU-036")
     q = psub.add_parser("stats", help="solved share by theme and source, recent attempts, review queue")
     q.add_argument("--since", help="YYYY-MM-DD")
+    psub.add_parser("import-games", help="turn reviewed own-game mistakes into puzzles (runs the TypeScript import)")

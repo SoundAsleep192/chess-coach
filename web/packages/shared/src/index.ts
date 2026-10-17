@@ -48,6 +48,10 @@ export interface BoardState extends Tree {
   updatedAt: string;
   /** Задача на доске (режим puzzle) или итог последней задачи. */
   puzzle?: PuzzleSession;
+  /** Панель рядом с доской; нет поля - выключена. */
+  panel?: PanelSettings;
+  /** Номер замены дерева; растёт при PUT /api/board и старте задачи. */
+  treeEpoch?: number;
 }
 
 export type ErrorCode = 'illegal' | 'frozen' | 'not_found' | 'forbidden' | 'storage' | 'bad_request';
@@ -61,7 +65,8 @@ export interface ErrorPayload {
 // WebSocket: сервер -> браузер
 export type ServerMessage =
   | { event: 'state'; data: BoardState }
-  | { event: 'error'; data: ErrorPayload };
+  | { event: 'error'; data: ErrorPayload }
+  | { event: 'analysis'; data: AnalysisData };
 
 // WebSocket: браузер -> сервер
 export interface NavigateData { nodeId: NodeId }
@@ -95,7 +100,7 @@ export interface CursorBody { at: At; arrows?: Arrow[]; caption?: string }
 export interface ModeBody { mode: Mode }
 
 // Задачи (этап 3)
-export type PuzzleSource = 'lichess' | 'polgar' | 'raduga';
+export type PuzzleSource = 'lichess' | 'polgar' | 'raduga' | 'games';
 export type SolutionFrom = 'lichess' | 'book' | 'engine';
 
 /** Документ коллекции `puzzles`. `fen` - позиция с ходом решающего, `solution` - UCI: решающий, соперник, решающий, ... */
@@ -112,6 +117,11 @@ export interface PuzzleDoc {
   page?: number;
   solutionFrom: SolutionFrom;
   disputed?: boolean;
+  /** Только source 'games': партия, полуход ошибки (нумерация review), сыгранный ход UCI, дата партии. */
+  gameId?: string;
+  ply?: number;
+  played?: string;
+  gameDate?: string;
 }
 
 export type PuzzleStatus = 'solving' | 'solved' | 'failed';
@@ -232,6 +242,21 @@ export interface NoPuzzlePayload extends ErrorPayload {
   available: ThemeCount[];
 }
 
+// Панель и очередь (этап 2б)
+export interface PanelSettings { eval: boolean; lines: 0 | 1 | 2 | 3; note?: string }
+export const PANEL_OFF: PanelSettings = { eval: false, lines: 0 };
+export interface PanelBody { eval?: boolean; lines?: number; note?: string | null }
+/** Оценка со стороны белых, san с номерами ходов. */
+export interface PanelLine { cp?: number; mate?: number; san: string[] }
+export type AnalysisStatus = 'pending' | 'ready' | 'unavailable';
+export interface AnalysisData { nodeId: NodeId; fen: string; status: AnalysisStatus; lines: PanelLine[] }
+export type InboxKind = 'line' | 'delete' | 'puzzle';
+export interface InboxEvent { id: number; at: string; kind: InboxKind; text: string }
+export interface InboxResponse { events: InboxEvent[]; more: number; cursor: string }
+export interface InboxAckBody { upto: number }
+
 export * from './engine.ts';
 export * from './material.ts';
+export * from './outcome.ts';
 export * from './puzzle.ts';
+export * from './validate.ts';

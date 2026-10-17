@@ -11,7 +11,11 @@ export type Reason =
   | 'recognition'
   | 'skipped_chapter'
   | 'filtered'
-  | 'not_winning';
+  | 'not_winning'
+  | 'no_class_drop'
+  | 'not_puzzle'
+  | 'engine_error'
+  | 'bad_review';
 
 export const REASON_TEXT: Record<Reason, string> = {
   illegal_position: 'нелегальная позиция',
@@ -23,6 +27,10 @@ export const REASON_TEXT: Record<Reason, string> = {
   skipped_chapter: 'глава не задачная',
   filtered: 'не прошла фильтр качества',
   not_winning: 'первый ход не выигрывает',
+  no_class_drop: 'сыгранный ход не роняет класс',
+  not_puzzle: 'нет удара и нет единственного хода',
+  engine_error: 'ошибка движка',
+  bad_review: 'разбор не читается',
 };
 
 interface Entry {
@@ -99,9 +107,10 @@ export class ImportReport {
     return lines.join('\n');
   }
 
-  write(dir: string, at?: Date): string {
+  /** file - имя файла, если не import-<source>.md (импорт одной партии пишет свой файл, не затирая полный отчёт). */
+  write(dir: string, at?: Date, file?: string): string {
     mkdirSync(dir, { recursive: true });
-    const path = join(dir, `import-${this.source}.md`);
+    const path = join(dir, file ?? `import-${this.source}.md`);
     writeFileSync(path, this.toMarkdown(at));
     return path;
   }

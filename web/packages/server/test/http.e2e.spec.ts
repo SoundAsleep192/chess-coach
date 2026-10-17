@@ -130,4 +130,20 @@ describe('persistence', () => {
       await board.mongo.start(true);
     }
   });
+
+  it('rejects malformed bodies with 400 bad_request', async () => {
+    const bad: [string, string, object][] = [
+      ['put', '/api/board', { pgn: 5 }],
+      ['put', '/api/board', { pgn: '1. e4 *', orientation: 'up' }],
+      ['post', '/api/board/lines', { at: 1, moves: [] }],
+      ['patch', '/api/board/cursor', { at: 1, arrows: [{ from: 'z9', to: 'e4', color: 'green' }] }],
+      ['patch', '/api/board/mode', { mode: 'puzzle' }],
+      ['post', '/api/puzzles/next', { source: 'chesscom' }],
+    ];
+    for (const [method, path, body] of bad) {
+      const res = await (request(http()) as any)[method](path).send(body);
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(res.body.code).toBe('bad_request');
+    }
+  });
 });

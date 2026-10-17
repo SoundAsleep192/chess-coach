@@ -19,17 +19,37 @@ describe('puzzle logic', () => {
   });
 
   it('filters by themes and source, never serves disputed puzzles, and prefixes fields after $lookup', () => {
-    expect(puzzleFilter([], undefined)).toEqual({ disputed: { $ne: true } });
-    expect(puzzleFilter(['fork'], 'raduga', 'p.')).toEqual({
+    expect(puzzleFilter({ themes: [] }, undefined)).toEqual({ disputed: { $ne: true } });
+    expect(puzzleFilter({ themes: ['fork'] }, 'raduga', 'p.')).toEqual({
       'p.disputed': { $ne: true },
       'p.themes': { $in: ['fork'] },
       'p.source': 'raduga',
     });
   });
 
+  it('sourceOrder puts games first', () => expect(sourceOrder({ polgar: 3 })).toEqual(['games', 'raduga', 'polgar', 'lichess']));
+
+  it('default themes do not filter games', () => {
+    expect(puzzleFilter({ themes: ['fork'] }, undefined, 'p.')).toEqual({
+      'p.disputed': { $ne: true },
+      $or: [{ 'p.source': 'games' }, { 'p.themes': { $in: ['fork'] } }],
+    });
+    expect(puzzleFilter({ themes: ['fork'] }, 'games')).toEqual({ disputed: { $ne: true }, source: 'games' });
+    expect(puzzleFilter({ themes: ['fork'] }, 'lichess')).toEqual({ disputed: { $ne: true }, themes: { $in: ['fork'] }, source: 'lichess' });
+  });
+
+  it('explicit theme filters games too', () => {
+    expect(puzzleFilter({ theme: 'fork', themes: ['pin'] }, undefined)).toEqual({ disputed: { $ne: true }, themes: { $in: ['fork'] } });
+    expect(puzzleFilter({ theme: 'fork', themes: [] }, 'games')).toEqual({ disputed: { $ne: true }, themes: { $in: ['fork'] }, source: 'games' });
+  });
+
+  it('labels a games puzzle by its ref', () => {
+    expect(puzzleLabel({ _id: 'games:abc-036', ref: 'Партия с fishbate, 21.09.2026, 18...', themes: ['fork'] }, ['fork'])).toBe('Партия с fishbate, 21.09.2026, 18...');
+  });
+
   it('puts the books first, the one with fewer attempts ahead, Lichess last, and reads the side to move', () => {
-    expect(sourceOrder({})).toEqual(['polgar', 'raduga', 'lichess']);
-    expect(sourceOrder({ lichess: 0, polgar: 3, raduga: 1 })).toEqual(['raduga', 'polgar', 'lichess']);
+    expect(sourceOrder({})).toEqual(['games', 'polgar', 'raduga', 'lichess']);
+    expect(sourceOrder({ lichess: 0, polgar: 3, raduga: 1 })).toEqual(['games', 'raduga', 'polgar', 'lichess']);
     expect(sideOf('7k/8/8/8/8/8/8/K7 b - - 0 1')).toBe('black');
   });
 });

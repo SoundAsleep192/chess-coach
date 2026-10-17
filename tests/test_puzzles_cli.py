@@ -109,3 +109,9 @@ def test_config_reads_the_puzzles_section(tmp_path, monkeypatch):
     c = load_config()
     assert c.puzzle_themes == ["fork", "pin"]
     assert c.puzzle_rating == 1450
+
+
+def test_next_accepts_source_games(fake_board, cfg):
+    fake_board.route("POST", "/api/puzzles/next", 200, puzzle_response())
+    main(["puzzles", "next", "--source", "games"])
+    assert fake_board.requests[0][2]["source"] == "games"

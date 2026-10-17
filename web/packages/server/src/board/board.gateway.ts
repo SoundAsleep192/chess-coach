@@ -9,21 +9,34 @@ import {
 } from '@nestjs/websockets';
 import type { Server, WebSocket } from 'ws';
 import type { DeleteBranchData, MoveData, NavigateData, ServerMessage } from '@board/shared';
+import { PanelService } from '../panel/panel.service';
 import { BoardError } from './board-error';
 import { BoardService } from './board.service';
+import { allowedOrigins, originAllowed } from './origin';
 
-@WebSocketGateway({ path: '/ws' })
+@WebSocketGateway({
+  path: '/ws',
+  // Рукопожатие с чужой страницы отклоняется до подключения (403).
+  verifyClient: (info: { origin?: string }, done: (ok: boolean, code?: number, message?: string) => void) =>
+    originAllowed(info.origin || undefined, allowedOrigins()) ? done(true) : done(false, 403, 'Forbidden origin'),
+})
 export class BoardGateway implements OnGatewayInit, OnGatewayConnection {
   @WebSocketServer() server!: Server;
 
-  constructor(private readonly board: BoardService) {}
+  constructor(
+    private readonly board: BoardService,
+    private readonly panel: PanelService,
+  ) {}
 
   afterInit(): void {
     this.board.changes.subscribe((state) => this.broadcast({ event: 'state', data: state }));
+    this.panel.analysis.subscribe((data) => this.broadcast({ event: 'analysis', data }));
   }
 
   handleConnection(client: WebSocket): void {
     this.send(client, { event: 'state', data: this.board.current });
+    const latest = this.panel.latest();
+    if (latest && latest.nodeId === this.board.current.cursor) this.send(client, { event: 'analysis', data: latest });
   }
 
   @SubscribeMessage('navigate')

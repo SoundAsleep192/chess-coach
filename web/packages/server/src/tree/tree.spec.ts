@@ -241,4 +241,16 @@ describe('promote', () => {
     expect(sans(mainLine(tree).slice(1))).toBe('e4 e5');
     expect(promote(promoted, promoted.rootId)).toEqual(promoted);
   });
+
+  it('fromGame with upto cuts variations at the same ply as the main line', () => {
+    const pgn = '1. e4 e5 (1... c5 2. Nf3 d6 3. d4) 2. Nf3 Nc6 *';
+    const tree = fromGame({ pgn }, { upto: 4 });
+    const plies = Object.values(tree.nodes).map((n) => n.ply);
+    expect(Math.max(...plies)).toBe(3);
+    const sans = Object.values(tree.nodes).map((n) => n.san);
+    expect(sans).toContain('c5');
+    expect(sans).toContain('Nf3');
+    expect(sans).not.toContain('d6');
+    expect(sans).not.toContain('d4');
+  });
 });

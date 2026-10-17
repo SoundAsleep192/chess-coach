@@ -1,21 +1,25 @@
 import { Chess } from 'chess.js';
-import { materialBalance, materialWord, winPct, type Arrow, type EngineLine } from '@board/shared';
+import {
+  compareMove as compareMoveWith,
+  DEFAULT_EQUIV_GAP,
+  materialBalance,
+  materialWord,
+  OUTCOME_WORD,
+  outcomeClass,
+  type Arrow,
+  type EngineLine,
+  type MoveVerdict,
+  type OutcomeClass,
+  type Score,
+} from '@board/shared';
 
-/** Классы исхода по win% решающего (модель Lichess): выигрыш от 75, перевес от 60, равно от 40. */
-export const WIN = 75;
-export const ADVANTAGE = 60;
-export const EQUAL_LOW = 40;
 /** Ход того же класса «равноценен», если уступает меньше чем столько пунктов win% (неточность из coach.toml). */
-export const EQUIV_GAP = Number(process.env.PUZZLE_EQUIV_GAP ?? 5);
+export const EQUIV_GAP = Number(process.env.PUZZLE_EQUIV_GAP ?? DEFAULT_EQUIV_GAP);
 
-export type OutcomeClass = 'mate' | 'winning' | 'advantage' | 'equal' | 'worse';
-export type MoveVerdict = 'equal' | 'better' | 'weaker' | 'wrong';
+export type { MoveVerdict, OutcomeClass, Score };
 /** Чем кончилась партия после хода: мат, ничья (пат, мало материала, повторение, 50 ходов) или ничем. */
 export type Terminal = 'checkmate' | 'draw' | null;
-export type Score = Pick<EngineLine, 'cp' | 'mate'>;
 
-const RANK: Record<OutcomeClass, number> = { worse: 0, equal: 1, advantage: 2, winning: 3, mate: 4 };
-const WORD: Record<OutcomeClass, string> = { mate: 'мат', winning: 'выигрыш', advantage: 'перевес', equal: 'равно', worse: 'хуже' };
 const MINUS = '−';
 
 export function uciMove(uci: string): { from: string; to: string; promotion?: string } {
@@ -26,30 +30,10 @@ export const arrow = (uci: string, color: Arrow['color']): Arrow => ({ from: uci
 /** Оценка позиции после хода, который кончил партию ничьей: win% 50. */
 export const DRAW_SCORE: Score = { cp: 0 };
 
-/** Класс исхода линии; оценка - со стороны решающего (он ходит в анализируемой позиции). */
-export function outcomeClass(line: Score): OutcomeClass {
-  if (line.mate !== undefined && line.mate > 0) return 'mate';
-  const w = winPct(line);
-  if (w >= WIN) return 'winning';
-  if (w >= ADVANTAGE) return 'advantage';
-  if (w >= EQUAL_LOW) return 'equal';
-  return 'worse';
-}
+export { outcomeClass };
 
-/**
- * Ход ученика против ожидаемого хода в том же узле. Класс ниже - ошибка, выше - сильнее. Тот же класс: мат не длиннее
- * ожидаемого - равноценно, длиннее - слабее; иначе больше win% - сильнее, уступает меньше EQUIV_GAP - равноценно, больше - слабее.
- */
-export function compareMove(expected: Score, played: Score): MoveVerdict {
-  const e = outcomeClass(expected);
-  const p = outcomeClass(played);
-  if (RANK[p] < RANK[e]) return 'wrong';
-  if (RANK[p] > RANK[e]) return 'better';
-  if (e === 'mate') return played.mate! <= expected.mate! ? 'equal' : 'weaker';
-  const diff = winPct(played) - winPct(expected);
-  if (diff > 0) return 'better';
-  return -diff < EQUIV_GAP ? 'equal' : 'weaker';
-}
+/** Сравнение хода с ожидаемым; порог равноценности - EQUIV_GAP из PUZZLE_EQUIV_GAP. */
+export const compareMove = (expected: Score, played: Score): MoveVerdict => compareMoveWith(expected, played, EQUIV_GAP);
 
 /** Сыграть ходы от корня задачи (история нужна для повторения) и сказать, кончилась ли партия. */
 export function terminalAfter(rootFen: string, ucis: string[]): Terminal {
@@ -68,7 +52,7 @@ export function formatEval(line: Score): string {
 }
 
 const evalWords = (line: Score) => (line.mate !== undefined && line.mate > 0 ? `мат в ${line.mate}` : formatEval(line));
-const withClass = (line: Score) => `${formatEval(line)} (${WORD[outcomeClass(line)]})`;
+const withClass = (line: Score) => `${formatEval(line)} (${OUTCOME_WORD[outcomeClass(line)]})`;
 
 /** На сколько пешек упал материал решающего за четыре полухода линии (отрицательное - вырос). */
 function materialLoss(fen: string, pv: string[]): number {

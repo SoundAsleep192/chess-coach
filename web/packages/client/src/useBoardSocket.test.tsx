@@ -78,4 +78,18 @@ describe('useBoardSocket', () => {
     act(() => vi.advanceTimersByTime(20000));
     expect(FakeSocket.all).toHaveLength(2);
   });
+
+  it('puts an analysis message into analysis, not error, and clears it on reconnect', () => {
+    const { result } = renderHook(() => useBoardSocket(fakeFactory));
+    const data = { nodeId: 'n1', fen: 'x', status: 'ready' as const, lines: [{ cp: 20, san: ['1.e4'] }] };
+    act(() => {
+      FakeSocket.last().open();
+      FakeSocket.last().emit({ event: 'analysis', data });
+    });
+    expect(result.current.analysis).toEqual(data);
+    expect(result.current.error).toBeNull();
+    act(() => FakeSocket.last().drop());
+    act(() => vi.advanceTimersByTime(500));
+    expect(result.current.analysis).toBeNull();
+  });
 });

@@ -11,6 +11,9 @@ import { PuzzleRepository } from './puzzle-repository';
 
 interface NextQuery {
   id?: string;
+  /** Явная тема: фильтрует все источники. */
+  theme?: string;
+  /** Темы по умолчанию: свои партии они не фильтруют. */
   themes: string[];
   source?: PuzzleSource;
   rating?: number;
@@ -65,17 +68,18 @@ export class PuzzlesService implements OnModuleInit {
       if (!puzzle) throw new NoPuzzleError(`puzzle ${q.id} not found`, []);
     } else {
       kind = 'due';
-      puzzle = await this.repo.firstDue(now, q.themes, q.source);
+      puzzle = await this.repo.firstDue(now, q, q.source);
       if (!puzzle) {
         kind = 'new';
         puzzle = await this.pickNew(q);
       }
       if (!puzzle) {
-        const what = `${q.themes.length ? `themes ${q.themes.join(', ')}` : 'any theme'}${q.source ? ` in ${q.source}` : ''}`;
+        const wanted = q.theme ? [q.theme] : q.themes;
+        const what = `${wanted.length ? `themes ${wanted.join(', ')}` : 'any theme'}${q.source ? ` in ${q.source}` : ''}`;
         throw new NoPuzzleError(`no puzzles for ${what}`, await this.repo.availableThemes(q.source));
       }
     }
-    const label = puzzleLabel(puzzle, q.themes);
+    const label = puzzleLabel(puzzle, q.theme ? [q.theme] : q.themes);
     const state = await this.board.startPuzzle({ puzzleId: puzzle._id, fen: puzzle.fen, solution: puzzle.solution, label });
     return {
       puzzle: {
@@ -158,7 +162,7 @@ export class PuzzlesService implements OnModuleInit {
     if (b.rating !== undefined && (typeof b.rating !== 'number' || !Number.isFinite(b.rating))) {
       throw new BoardError('bad_request', 'rating must be a number');
     }
-    return { id: b.id, themes: b.theme ? [b.theme] : (b.themes ?? []), source: b.source, rating: b.rating };
+    return { id: b.id, theme: b.theme || undefined, themes: b.themes ?? [], source: b.source, rating: b.rating };
   }
 
   private async pickNew(q: NextQuery): Promise<PuzzleDoc | null> {
@@ -166,9 +170,11 @@ export class PuzzlesService implements OnModuleInit {
     const order = q.source ? [q.source] : sourceOrder(await this.repo.attemptsBySource());
     for (const source of order) {
       const p =
-        source === 'lichess'
-          ? await this.repo.sampleNewLichess(q.themes, exclude, q.rating)
-          : await this.repo.firstNewBook(source, q.themes, exclude);
+        source === 'games'
+          ? await this.repo.firstNewGames(q, exclude)
+          : source === 'lichess'
+            ? await this.repo.sampleNewLichess(q.theme ? [q.theme] : q.themes, exclude, q.rating)
+            : await this.repo.firstNewBook(source, q, exclude);
       if (p) return p;
     }
     return null;

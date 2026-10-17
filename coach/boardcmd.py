@@ -150,6 +150,45 @@ def puzzle_line(state: dict) -> str | None:
     return line
 
 
+NOTE_SHOWN = 60
+
+
+def panel_line(state: dict) -> str | None:
+    """Panel settings for the coach, or None when everything is off (or the document predates the panel)."""
+    panel = state.get("panel") or {}
+    on, lines, note = bool(panel.get("eval")), panel.get("lines") or 0, panel.get("note")
+    if not on and not lines and not note:
+        return None
+    parts = ["panel", f"eval={'on' if on else 'off'}", f"lines={lines}"]
+    if note:
+        shown = " ".join(note.split())
+        if len(shown) > NOTE_SHOWN:
+            shown = shown[:NOTE_SHOWN] + "..."
+        parts.append(f'note="{shown}"')
+    return " ".join(parts)
+
+
+def print_panel(state: dict) -> None:
+    print(panel_line(state) or "panel off")
+
+
+def board_panel(client: BoardClient, args) -> None:
+    if args.eval is None and args.lines is None:
+        args._panel_parser.error("give --eval or --lines")
+    body: dict = {}
+    if args.eval is not None:
+        body["eval"] = args.eval == "on"
+    if args.lines is not None:
+        body["lines"] = args.lines
+    print_panel(client.set_panel(body))
+
+
+def board_note(client: BoardClient, args) -> None:
+    if args.clear == (args.text is not None):
+        args._note_parser.error("give the note text or --clear, not both and not neither")
+    print_panel(client.set_panel({"note": None if args.clear else args.text}))
+
+
 def print_state(client: BoardClient) -> None:
     print(client.pgn().rstrip())
     state = client.state()
@@ -157,6 +196,9 @@ def print_state(client: BoardClient) -> None:
     puzzle = puzzle_line(state)
     if puzzle:
         print(puzzle)
+    panel = panel_line(state)
+    if panel:
+        print(panel)
     rows = variation_lines(state)
     print("variations:" if rows else "variations: none")
     for row in rows:
@@ -234,6 +276,10 @@ def cmd_board(args, cfg: Config) -> None:
             print_state(client)
         elif args.board_cmd == "delete":
             board_delete(client, args)
+        elif args.board_cmd == "panel":
+            board_panel(client, args)
+        elif args.board_cmd == "note":
+            board_note(client, args)
     except BoardUnavailable as e:
         print(str(e), file=sys.stderr)
         raise SystemExit(1)
@@ -294,3 +340,13 @@ def add_board_parser(sub) -> None:
 
     q = bsub.add_parser("delete", help="delete a branch by node id")
     q.add_argument("node_id")
+
+    q = bsub.add_parser("panel", help="eval bar and engine lines under the board")
+    q.add_argument("--eval", choices=["on", "off"], help="evaluation bar")
+    q.add_argument("--lines", type=int, choices=[0, 1, 2, 3], help="number of engine lines (0 = none)")
+    q.set_defaults(_panel_parser=q)
+
+    q = bsub.add_parser("note", help="coach note in the panel")
+    q.add_argument("text", nargs="?", help="note text (up to 2000 characters)")
+    q.add_argument("--clear", action="store_true", help="remove the note")
+    q.set_defaults(_note_parser=q)

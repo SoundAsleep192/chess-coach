@@ -33,6 +33,12 @@ export interface CardDoc {
   history: CardHistory[];
 }
 
+/** Явная тема запроса и темы по умолчанию - раздельно: на задачи из своих партий действует только явная. */
+export interface ThemeQuery {
+  theme?: string;
+  themes: string[];
+}
+
 const CANDIDATES = 20;
 const ID_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
@@ -55,6 +61,10 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
 
   async onModuleInit(): Promise<void> {
     await this.puzzles.createIndex({ themes: 1, source: 1, rating: 1 });
+    // источник - равенство, затем сортировка firstNewGames; другой ключ, чем у прежнего {source, gameDate}, так что конфликта имён нет
+    await this.puzzles.createIndex({ source: 1, gameDate: -1, _id: 1 });
+    // прежний индекс {source, gameDate} - префикс нового и лишний; на базе без него dropIndex бросает, это не ошибка
+    await this.puzzles.dropIndex('source_1_gameDate_-1').catch(() => undefined);
     await this.cards.createIndex({ due: 1 });
   }
 
@@ -63,14 +73,14 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Самая просроченная карточка нужных тем и источника. */
-  async firstDue(now: Date, themes: string[], source?: PuzzleSource): Promise<PuzzleDoc | null> {
+  async firstDue(now: Date, q: ThemeQuery, source?: PuzzleSource): Promise<PuzzleDoc | null> {
     const [row] = await this.cards
       .aggregate<{ p: PuzzleDoc }>([
         { $match: { due: { $lte: now } } },
         { $sort: { due: 1, _id: 1 } },
         { $lookup: { from: 'puzzles', localField: '_id', foreignField: '_id', as: 'p' } },
         { $unwind: '$p' },
-        { $match: puzzleFilter(themes, source, 'p.') },
+        { $match: puzzleFilter(q, source, 'p.') },
         { $limit: 1 },
         { $project: { p: 1 } },
       ])
@@ -93,10 +103,16 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
    * Книги идут по порядку: _id вида polgar:0123 и raduga:3-1-021 сортируется как номера книги.
    * Диапазон по префиксу _id не даёт обходить 1.6M задач Lichess, которые идут в _id раньше.
    */
-  firstNewBook(source: PuzzleSource, themes: string[], exclude: string[]): Promise<PuzzleDoc | null> {
-    const { source: _source, ...rest } = puzzleFilter(themes, source);
+  firstNewBook(source: PuzzleSource, q: ThemeQuery, exclude: string[]): Promise<PuzzleDoc | null> {
+    const { source: _source, ...rest } = puzzleFilter(q, source);
     const filter = { ...rest, _id: { $gte: `${source}:`, $lt: `${source};`, $nin: exclude } } as Filter<PuzzleDoc>;
     return this.puzzles.find(filter).sort({ _id: 1 }).limit(1).next();
+  }
+
+  /** Свои партии: самая свежая партия первой (при равной дате - по id), внутри партии по порядку ходов (_id с полуходом в 3 цифры). */
+  firstNewGames(q: ThemeQuery, exclude: string[]): Promise<PuzzleDoc | null> {
+    const filter = { ...puzzleFilter(q, 'games'), _id: { $gte: 'games:', $lt: 'games;', $nin: exclude } } as Filter<PuzzleDoc>;
+    return this.puzzles.find(filter).sort({ gameDate: -1, _id: 1 }).limit(1).next();
   }
 
   /**
@@ -122,7 +138,7 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
     const lo = range?.lo ?? 600;
     const hi = range?.hi ?? 2800;
     const pivot = lo + Math.floor(Math.random() * (hi - lo + 1));
-    const base = { ...puzzleFilter(themes, 'lichess'), _id: { $nin: exclude } };
+    const base = { ...puzzleFilter({ themes }, 'lichess'), _id: { $nin: exclude } };
     const find = (rating: Document, sort: 1 | -1) =>
       this.puzzles
         .find({ ...base, rating } as Filter<PuzzleDoc>, { hint: 'themes_1_source_1_rating_1' })
@@ -135,7 +151,7 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
   }
 
   private async sampleById(exclude: string[], range?: { lo: number; hi: number }): Promise<PuzzleDoc | null> {
-    const base: Document = { ...puzzleFilter([], 'lichess') };
+    const base: Document = { ...puzzleFilter({ themes: [] }, 'lichess') };
     if (range) base.rating = { $gte: range.lo, $lte: range.hi };
     const pivot = `lichess:${randomId()}`;
     const find = (id: Document, sort: 1 | -1) =>
@@ -152,7 +168,7 @@ export class PuzzleRepository implements OnModuleInit, OnApplicationShutdown {
   async availableThemes(source?: PuzzleSource): Promise<ThemeCount[]> {
     const rows = await this.puzzles
       .aggregate<{ _id: string; count: number }>([
-        { $match: puzzleFilter([], source) },
+        { $match: puzzleFilter({ themes: [] }, source) },
         { $unwind: '$themes' },
         { $group: { _id: '$themes', count: { $sum: 1 } } },
         { $sort: { count: -1, _id: 1 } },

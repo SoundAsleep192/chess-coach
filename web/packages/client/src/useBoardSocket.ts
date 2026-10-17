@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BoardState, ClientMessage, ErrorPayload, ServerMessage } from '@board/shared';
+import type { AnalysisData, BoardState, ClientMessage, ErrorPayload, ServerMessage } from '@board/shared';
 
 export interface SocketLike {
   readyState: number;
@@ -25,6 +25,8 @@ export interface BoardSocket {
   state: BoardState | null;
   connected: boolean;
   error: ErrorPayload | null;
+  /** Последнее сообщение analysis; сбрасывается при переподключении. */
+  analysis: AnalysisData | null;
   send(msg: ClientMessage): void;
 }
 
@@ -32,6 +34,7 @@ export function useBoardSocket(factory: SocketFactory = browserSocket): BoardSoc
   const [state, setState] = useState<BoardState | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<ErrorPayload | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const socketRef = useRef<SocketLike | null>(null);
 
   useEffect(() => {
@@ -43,6 +46,7 @@ export function useBoardSocket(factory: SocketFactory = browserSocket): BoardSoc
       // Версия отслеживается в пределах одного соединения: после перезапуска сервера
       // или пересоздания базы первое состояние принимается всегда.
       let lastVersion = 0;
+      setAnalysis(null);
       const ws = factory();
       socketRef.current = ws;
       ws.onopen = () => {
@@ -55,7 +59,9 @@ export function useBoardSocket(factory: SocketFactory = browserSocket): BoardSoc
           if (msg.data.version < lastVersion) return;
           lastVersion = msg.data.version;
           setState(msg.data);
-        } else {
+        } else if (msg.event === 'analysis') {
+          setAnalysis(msg.data);
+        } else if (msg.event === 'error') {
           setError(msg.data);
         }
       };
@@ -84,5 +90,5 @@ export function useBoardSocket(factory: SocketFactory = browserSocket): BoardSoc
     if (ws && ws.readyState === OPEN) ws.send(JSON.stringify(msg));
   }, []);
 
-  return { state, connected, error, send };
+  return { state, connected, error, send, analysis };
 }

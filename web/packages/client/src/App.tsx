@@ -3,6 +3,7 @@ import type { NodeId } from '@board/shared';
 import { banner, canDrag } from './banner';
 import { BoardView } from './BoardView';
 import { MoveList } from './MoveList';
+import { Panel } from './Panel';
 import { PromotionPicker } from './PromotionPicker';
 import { PuzzleControls } from './PuzzleControls';
 import { dropToMove, promotionUci, type PromotionPiece } from './moves';
@@ -28,7 +29,7 @@ const ERROR_TEXT: Record<string, string> = {
 };
 
 export function App({ socket }: { socket?: SocketFactory }) {
-  const { state, connected, error, send } = useBoardSocket(socket);
+  const { state, connected, error, send, analysis } = useBoardSocket(socket);
   const [flipped, setFlipped] = useState(false);
   const [pending, setPending] = useState<{ parentId: NodeId; from: string; to: string } | null>(null);
   // Листать дерево можно только в свободном режиме: при заморозке и во время решения задачи - нельзя.
@@ -105,6 +106,7 @@ export function App({ socket }: { socket?: SocketFactory }) {
           {state.puzzle && <PuzzleControls puzzle={state.puzzle} disabled={!connected} send={send} />}
         </section>
         <aside className="moves-col">
+          <Panel state={state} analysis={analysis} orientation={orientation} />
           {state.meta.title && <h1 className="title">{state.meta.title}</h1>}
           <MoveList
             state={state}

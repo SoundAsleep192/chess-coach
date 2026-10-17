@@ -3,6 +3,8 @@ name: chess-coach
 services:
   mongo:
     image: mongo:9.0.2
+    ports:
+      - "127.0.0.1:27018:27017"
     volumes:
       - board-mongo:/data/db
     healthcheck:
@@ -44,6 +46,12 @@ services:
       ENGINE_URL: http://engine:8766
       HOST: 0.0.0.0
       PORT: "8765"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8765/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       mongo:
         condition: service_healthy

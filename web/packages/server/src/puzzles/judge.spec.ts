@@ -1,40 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { compareMove, describeWeaker, describeWrong, formatEval, outcomeClass, terminalAfter } from './judge';
+import { describeWeaker, describeWrong, formatEval, terminalAfter } from './judge';
 
 const FORK = 'q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1';
 const KR = '7k/8/5K2/8/8/8/8/R7 w - - 0 1';
-
-describe('outcomeClass', () => {
-  it('splits win% at 75, 60 and 40 and treats a mate for the solver as its own class', () => {
-    expect(outcomeClass({ mate: 3 })).toBe('mate');
-    expect(outcomeClass({ cp: 300 })).toBe('winning');
-    expect(outcomeClass({ cp: 290 })).toBe('advantage');
-    expect(outcomeClass({ cp: 120 })).toBe('advantage');
-    expect(outcomeClass({ cp: 110 })).toBe('equal');
-    expect(outcomeClass({ cp: -110 })).toBe('equal');
-    expect(outcomeClass({ cp: -120 })).toBe('worse');
-    expect(outcomeClass({ mate: -2 })).toBe('worse');
-  });
-});
-
-describe('compareMove', () => {
-  it('compares mates by length', () => {
-    expect(compareMove({ mate: 2 }, { mate: 2 })).toBe('equal');
-    expect(compareMove({ mate: 2 }, { mate: 1 })).toBe('equal');
-    expect(compareMove({ mate: 2 }, { mate: 3 })).toBe('weaker');
-    expect(compareMove({ mate: 2 }, { cp: 900 })).toBe('wrong');
-  });
-
-  it('inside a class: within 5 points equal, further weaker, higher better; a lower class is wrong', () => {
-    expect(compareMove({ cp: 900 }, { cp: 800 })).toBe('equal');
-    expect(compareMove({ cp: 400 }, { cp: 350 })).toBe('equal');
-    expect(compareMove({ cp: 400 }, { cp: 300 })).toBe('weaker');
-    expect(compareMove({ cp: 900 }, { cp: 1000 })).toBe('better');
-    expect(compareMove({ cp: 150 }, { mate: 4 })).toBe('better');
-    expect(compareMove({ cp: 900 }, { cp: 0 })).toBe('wrong');
-    expect(compareMove({ cp: 900 }, { cp: 290 })).toBe('wrong');
-  });
-});
 
 describe('terminalAfter', () => {
   it('sees mate, stalemate and a threefold repetition from the root', () => {
@@ -78,7 +46,7 @@ describe('texts', () => {
       expected: { cp: 50 },
     });
     expect(out).toEqual({
-      text: 'После Rd8+ вы теряете ладью. Оценка −5.0 (хуже), было +0.5 (равно).',
+      text: 'После Rd8+ вы теряете ладью. Оценка −5.0 (проигрыш), было +0.5 (равно).',
       arrows: [{ from: 'a8', to: 'd8', color: 'red' }],
     });
   });
@@ -91,7 +59,7 @@ describe('texts', () => {
       expected: { cp: 900 },
     });
     expect(out).toEqual({
-      text: 'После Nf6+ оценка −8.0 (хуже), было +9.0 (выигрыш).',
+      text: 'После Nf6+ оценка −8.0 (проигрыш), было +9.0 (выигрыш).',
       arrows: [
         { from: 'e8', to: 'e7', color: 'red' },
         { from: 'a8', to: 'a1', color: 'blue' },

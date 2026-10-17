@@ -60,7 +60,7 @@ describe('puzzle mode', () => {
       phase: 'feedback',
       errors: 1,
       recorded: true,
-      feedback: { kind: 'wrong', text: 'После Nf6+ оценка −8.0 (хуже), было +9.0 (выигрыш).' },
+      feedback: { kind: 'wrong', text: 'После Nf6+ оценка −8.0 (проигрыш), было +9.0 (выигрыш).' },
     });
     expect(wrong.nodes[wrong.cursor]).toMatchObject({
       san: 'Ke7',

@@ -14,8 +14,10 @@ from .config import GAMES, REVIEWS, ROOT, find_stockfish, load_config
 from .engine import analyse, apply_moves, make_limit, open_engine
 from .boardclient import BoardClient, BoardError, BoardUnavailable
 from .boardcmd import add_board_parser, arrows_for, cmd_board, show_on_server, svg_arrow
+from .inboxcmd import add_inbox_parser, cmd_inbox
 from .puzzlescmd import add_puzzles_parser, cmd_puzzles
 from .games import fetch, filter_games, import_otb, is_reviewed, load_index, player_color, rebuild_index, resolve_game
+from .gamespuzzles import after_review
 from .review import format_review, review_game
 from .stats import stats_text
 
@@ -142,7 +144,8 @@ def cmd_analyze(args, cfg):
 def cmd_review(args, cfg):
     game, gid, src = resolve_game(args.game, cfg)
     path = REVIEWS / f"{gid}.json"
-    if path.is_file() and not args.force:
+    fresh = not (path.is_file() and not args.force)
+    if not fresh:
         r = json.loads(path.read_text(encoding="utf-8"))
         print("(cached review; --force to re-run)")
     else:
@@ -150,6 +153,8 @@ def cmd_review(args, cfg):
         r = review_game(cfg, game, gid, src, time_per_move=args.time, deep_time=deep)
     print(format_review(r))
     print(f"\nSaved: {path.relative_to(ROOT)} · report: coach report {gid}")
+    if fresh:
+        after_review(gid)
 
 
 def cmd_stats(args, cfg):
@@ -252,6 +257,7 @@ def main(argv=None):
 
     add_board_parser(sub)
     add_puzzles_parser(sub)
+    add_inbox_parser(sub)
 
     p = sub.add_parser("report", help="HTML report of a reviewed game (boards, eval curve, coach notes)")
     p.add_argument("game")
@@ -260,11 +266,17 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # quiet exit when piped into head/less
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except Exception:
+        if args.cmd == "inbox" and args.hook:
+            cfg = None  # the hook never reads the config and must never break the student's message
+        else:
+            raise
     {
         "doctor": cmd_doctor, "fetch": cmd_fetch, "import": cmd_import, "games": cmd_games, "analyze": cmd_analyze,
         "review": cmd_review, "stats": cmd_stats, "show": cmd_show, "report": cmd_report, "board": cmd_board,
-        "puzzles": cmd_puzzles,
+        "puzzles": cmd_puzzles, "inbox": cmd_inbox,
     }[args.cmd](args, cfg)
 
 

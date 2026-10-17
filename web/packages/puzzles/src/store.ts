@@ -37,6 +37,17 @@ export class PuzzleStore {
     return res.deletedCount;
   }
 
+  /** Все задачи source 'games'. */
+  async gamesPuzzles(): Promise<PuzzleDoc[]> {
+    return this.puzzles.find({ source: 'games' }).sort({ _id: 1 }).toArray();
+  }
+
+  /** Удалить задачи source 'games' (только этой партии, если gameId) не из keep. */
+  async removeGames(keep: string[], gameId?: string): Promise<number> {
+    const res = await this.puzzles.deleteMany({ source: 'games', _id: { $nin: keep }, ...(gameId !== undefined ? { gameId } : {}) });
+    return res.deletedCount;
+  }
+
   async close(): Promise<void> {
     await this.client.close();
   }

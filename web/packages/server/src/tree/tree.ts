@@ -7,7 +7,7 @@ export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0
 
 export type GameInput = { pgn: string } | { fen?: string; moves?: string[] };
 export interface FromGameOptions {
-  /** Обрезать главную линию: остаются ходы с номером полухода меньше upto (позиция перед полуходом upto - последняя). */
+  /** Обрезать партию и её варианты: остаются ходы с номером полухода меньше upto (позиция перед полуходом upto - последняя). */
   upto?: number;
   /** Номер полухода корня. По умолчанию выводится из FEN: (номер хода - 1) * 2 + (ход чёрных ? 1 : 0). */
   plyOffset?: number;
@@ -239,7 +239,7 @@ function addParsedLine(tree: Tree, parentId: NodeId, moves: ParsedMove[], author
     if (upto !== undefined && parentNode.ply + 1 >= upto) return;
     const node = pushMove(tree, current, mv.notation.notation, author);
     for (const variation of mv.variations) {
-      addParsedLine(tree, parentNode.id, variation, 'coach');
+      addParsedLine(tree, parentNode.id, variation, 'coach', upto);
     }
     current = node.id;
   }

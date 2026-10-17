@@ -9,8 +9,11 @@ import type {
   EngineLine,
   Mode,
   NodeId,
+  PanelBody,
+  PanelSettings,
   ReplaceBody,
 } from '@board/shared';
+import { PANEL_OFF } from '@board/shared';
 import { BoardRepository } from '../storage/board-repository';
 import {
   addLine,
@@ -39,6 +42,8 @@ import {
   type ReplyGuard,
   type Step,
 } from '../puzzles/puzzle-flow';
+import { InboxService } from '../inbox/inbox.service';
+import { panelOf } from '../panel/panel-settings';
 import { PuzzleSolver } from '../puzzles/puzzle-solver';
 import { TreeError } from '../tree/tree-error';
 import { BoardError } from './board-error';
@@ -56,6 +61,7 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   constructor(
     private readonly repo: BoardRepository,
     private readonly solver: PuzzleSolver,
+    private readonly inbox: InboxService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -126,6 +132,8 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
         orientation: body.orientation ?? s.orientation,
         mode: s.mode === 'puzzle' ? 'free' : s.mode,
         puzzle: undefined,
+        treeEpoch: (s.treeEpoch ?? 0) + 1,
+        panel: PANEL_OFF,
         meta: { title: body.title, gameId: body.gameId, plyOffset: tree.nodes[tree.rootId].ply },
       };
     });
@@ -134,7 +142,7 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   /** Задача на доске: корень - позиция задачи, ход решающего снизу. Анализ корня - до первого состояния, не дольше PUZZLE_ROOT_MS. */
   async startPuzzle(p: PuzzleStart): Promise<BoardState> {
     const root = await this.solver.rootInfo(p.fen, p.solution[0]);
-    const state = await this.mutate((s) => startSession(s, p, root, new Date()));
+    const state = await this.mutate((s) => ({ ...startSession(s, p, root, new Date()), treeEpoch: (s.treeEpoch ?? 0) + 1, panel: PANEL_OFF }));
     this.afterPuzzleChange();
     return state;
   }
@@ -168,6 +176,18 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
+  setPanel(body: PanelBody): Promise<BoardState> {
+    return this.mutate((s) => {
+      const cur = panelOf(s);
+      const panel: PanelSettings = {
+        eval: body.eval ?? cur.eval,
+        lines: (body.lines ?? cur.lines) as PanelSettings['lines'],
+        ...(body.note === null ? {} : body.note !== undefined ? { note: body.note } : cur.note !== undefined ? { note: cur.note } : {}),
+      };
+      return { ...s, panel };
+    });
+  }
+
   deleteNode(nodeId: NodeId): Promise<BoardState> {
     return this.mutate((s) => ({ ...s, ...deleteBranch(treeOf(s), nodeId) }));
   }
@@ -181,6 +201,7 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   }
 
   studentMove(parentId: NodeId, uci: string): Promise<BoardState> {
+    let freeNode = null as NodeId | null;
     return this.step((s) => {
       if (s.mode === 'puzzle' && s.puzzle?.status === 'solving') {
         const node = s.nodes[s.puzzle.node];
@@ -192,7 +213,11 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
         throw new BoardError('not_found', `node ${parentId} not found (the board was probably replaced)`);
       }
       const { tree, node } = addMove(treeOf(s), parentId, uci, 'student');
+      freeNode = node.id;
       return { state: { ...s, ...tree, cursor: node.id }, finished: null };
+    }).then((state) => {
+      if (freeNode) this.inbox.recordMove(state, freeNode);
+      return state;
     });
   }
 
@@ -220,13 +245,18 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   }
 
   studentDelete(nodeId: NodeId): Promise<BoardState> {
+    let before!: BoardState;
     return this.mutate((s) => {
+      before = s;
       this.assertFree(s);
       if (!s.nodes[nodeId]) throw new BoardError('not_found', `node ${nodeId} not found`);
       if (!isSubtreeBy(treeOf(s), nodeId, 'student')) {
         throw new BoardError('forbidden', `branch ${nodeId} is not entirely the student's`);
       }
       return { ...s, ...deleteBranch(treeOf(s), nodeId) };
+    }).then((state) => {
+      this.inbox.recordDelete(before, nodeId);
+      return state;
     });
   }
 
@@ -238,10 +268,13 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   /** Изменение с шагом задачи: после записи - попытка в историю, проверка хода движком, ответ соперника, анализ узла. */
   private step(change: (s: BoardState) => Step): Promise<BoardState> {
     let step: Step | null = null;
+    let prev!: BoardState;
     return this.mutate((s) => {
+      prev = s;
       step = change(s);
       return step.state;
     }).then((state) => {
+      if (step) this.inbox.recordPuzzle(prev, state);
       this.afterStep(step);
       return state;
     });

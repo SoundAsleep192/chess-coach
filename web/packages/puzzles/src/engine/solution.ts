@@ -21,7 +21,7 @@ export type SolveResult =
   | { ok: true; solution: string[]; from: SolutionFrom; disputed: boolean; extended: boolean; detail?: string }
   | { ok: false; detail: string };
 
-function isUnique(best: EngineLine, second: EngineLine | undefined, gap: number): boolean {
+export function isUnique(best: EngineLine, second: EngineLine | undefined, gap: number): boolean {
   if (!second) return true;
   if (best.mate !== undefined && best.mate > 0) {
     // последний ход засчитывается любым матом, поэтому мат в 1 «единственный» всегда

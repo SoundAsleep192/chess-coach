@@ -87,3 +87,12 @@ class BoardClient:
     def puzzle_stats(self, since: str | None = None) -> dict:
         query = f"?since={urllib.parse.quote(since)}" if since else ""
         return self._request("GET", f"/api/puzzles/stats{query}")
+
+    def inbox(self) -> dict:
+        return self._request("GET", "/api/inbox")
+
+    def inbox_ack(self, upto: int) -> dict:
+        return self._request("POST", "/api/inbox/ack", {"upto": upto})
+
+    def set_panel(self, body: dict) -> dict:
+        return self._request("PATCH", "/api/board/panel", body)

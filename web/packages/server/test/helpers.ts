@@ -56,6 +56,7 @@ export function setupBoardApp(): BoardHarness {
     await client.db().collection('boards').deleteMany({});
     await client.db().collection('puzzles').deleteMany({});
     await client.db().collection('cards').deleteMany({});
+    await client.db().collection('inbox').deleteMany({});
     await client.close();
     engine.reset();
     running = await startApp();

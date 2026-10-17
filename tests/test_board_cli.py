@@ -182,3 +182,42 @@ def test_split_moves_and_variation_rows():
 
 def test_split_moves_strips_annotations():
     assert split_moves("1. e4!? e5 2. Nf3! Nc6?!") == ["e4", "e5", "Nf3", "Nc6"]
+
+
+def test_panel_and_note_send_bodies_and_state_prints_panel_line(fake_board, capsys):
+    state = make_state(["e4"], cursor_ply=1)
+    on = {**state, "panel": {"eval": True, "lines": 2, "note": "план: " + "f4-f5 " * 20}}
+    fake_board.route("PATCH", "/api/board/panel", 200, on)
+    main(["board", "panel", "--eval", "on", "--lines", "2"])
+    assert fake_board.requests[-1] == ("PATCH", "/api/board/panel", {"eval": True, "lines": 2})
+    main(["board", "note", "--clear"])
+    assert fake_board.requests[-1] == ("PATCH", "/api/board/panel", {"note": None})
+    main(["board", "note", "держи слабое поле d5"])
+    assert fake_board.requests[-1] == ("PATCH", "/api/board/panel", {"note": "держи слабое поле d5"})
+    out = capsys.readouterr().out
+    assert 'panel eval=on lines=2 note="план: ' in out and '..."' in out
+
+
+def test_panel_needs_an_argument_and_note_exactly_one(fake_board, capsys):
+    with pytest.raises(SystemExit):
+        main(["board", "panel"])
+    assert "give --eval or --lines" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["board", "note"])
+    with pytest.raises(SystemExit):
+        main(["board", "note", "x", "--clear"])
+    assert fake_board.requests == []
+
+
+def test_panel_off_and_state_shows_panel_line(fake_board, capsys):
+    state = make_state(["e4"], cursor_ply=1)
+    fake_board.route("PATCH", "/api/board/panel", 200, {**state, "panel": {"eval": False, "lines": 0, "note": None}})
+    main(["board", "panel", "--eval", "off"])
+    assert capsys.readouterr().out.strip() == "panel off"
+    fake_board.route("GET", "/api/board/pgn", 200, "1. e4 *")
+    fake_board.route("GET", "/api/board", 200, {**state, "panel": {"eval": True, "lines": 2, "note": None}})
+    main(["board", "state"])
+    assert "panel eval=on lines=2\n" in capsys.readouterr().out
+    fake_board.route("GET", "/api/board", 200, state)  # old document without the field
+    main(["board", "state"])
+    assert "panel" not in capsys.readouterr().out

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import type { BoardState, PuzzleNextResponse, PuzzleStats } from '@board/shared';
+import type { BoardState, PuzzleDoc, PuzzleNextResponse, PuzzleStats } from '@board/shared';
 import { card, DISPUTED, FORK, HIGH, MATE1, MATE2, TWO_ROOKS } from './puzzle-fixtures';
 import { seed, setupBoardApp, withDb } from './helpers';
 
@@ -8,6 +8,22 @@ const board = setupBoardApp();
 const http = () => board.running.http;
 const next = async (body: object, status = 200) =>
   (await request(http()).post('/api/puzzles/next').send(body).expect(status)).body as PuzzleNextResponse;
+
+const game = (id: string, gameDate: string, ply: number, themes = ['defensiveMove']): PuzzleDoc => ({
+  ...MATE1,
+  _id: `games:${id}-${String(ply).padStart(3, '0')}`,
+  source: 'games',
+  themes,
+  ref: `Партия ${id}, ${ply}`,
+  gameId: id,
+  ply,
+  gameDate,
+  solutionFrom: 'engine',
+});
+const OLD = game('aaaaaaaa', '2026-09-01T10:00:00', 20);
+const NEW_LATE = game('bbbbbbbb', '2026-09-21T15:01:19', 30);
+const NEW_EARLY = game('bbbbbbbb', '2026-09-21T15:01:19', 12);
+const past = (ms: number) => new Date(Date.now() - ms);
 
 describe('puzzles REST', () => {
   it('puts a puzzle on the board in puzzle mode with the solver at the bottom', async () => {
@@ -140,5 +156,64 @@ describe('puzzles REST', () => {
     const s = await board.load();
     expect(s.mode).toBe('free');
     expect(s.puzzle).toBeUndefined();
+  });
+
+  describe('own games', () => {
+    it('next with default themes gives a games puzzle before books', async () => {
+      await seed(FORK, MATE2, OLD);
+      const res = await next({ themes: ['fork'] });
+      expect(res.puzzle).toMatchObject({ id: OLD._id, source: 'games', kind: 'new', label: OLD.ref });
+      expect(res.state.meta?.title).toBe(OLD.ref);
+    });
+
+    it('newer game first, then by ply', async () => {
+      await seed(OLD, NEW_LATE, NEW_EARLY);
+      const order: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const id = (await next({ themes: ['fork'] })).puzzle.id;
+        order.push(id);
+        await withDb((db) => db.collection('cards').insertOne(card(id, 'games', ['defensiveMove'], new Date(Date.now() + 86_400_000)) as never));
+      }
+      expect(order).toEqual([NEW_EARLY._id, NEW_LATE._id, OLD._id]);
+    });
+
+    it('breaks a date tie by id', async () => {
+      const b = game('bbbbbbbb', '2025-11-09T00:00:00', 5);
+      const a = game('aaaaaaaa', '2025-11-09T00:00:00', 9);
+      await seed(b, a);
+      expect((await next({})).puzzle.id).toBe(a._id);
+    });
+
+    it('due games card is served despite default themes', async () => {
+      await seed(OLD, MATE2);
+      await withDb((db) => db.collection('cards').insertOne(card(OLD._id, 'games', OLD.themes, past(60_000)) as never));
+      expect((await next({ themes: ['fork'] })).puzzle).toMatchObject({ id: OLD._id, kind: 'due' });
+    });
+
+    it('explicit theme fork skips games, defensiveMove serves games', async () => {
+      await seed(OLD, FORK);
+      expect((await next({ theme: 'fork', themes: ['defensiveMove'] })).puzzle.id).toBe(FORK._id);
+      expect((await next({ theme: 'defensiveMove' })).puzzle.id).toBe(OLD._id);
+      await withDb((db) => db.collection('cards').insertOne(card(OLD._id, 'games', OLD.themes, past(60_000)) as never));
+      expect((await next({ theme: 'fork' })).puzzle.id).toBe(FORK._id);
+    });
+
+    it('source games serves only own puzzles; empty -> 404 no_puzzle', async () => {
+      await seed(MATE2);
+      const res = await request(http()).post('/api/puzzles/next').send({ source: 'games' }).expect(404);
+      expect(res.body).toMatchObject({ code: 'not_found' });
+      expect(res.body.message).toContain('games');
+      await seed(OLD);
+      expect((await next({ source: 'games', themes: ['fork'] })).puzzle.id).toBe(OLD._id);
+    });
+
+    it('next without any themes still serves games first, then books and Lichess unfiltered', async () => {
+      await seed(MATE1, MATE2, OLD);
+      expect((await next({})).puzzle.id).toBe(OLD._id);
+      await withDb((db) => db.collection('cards').insertOne(card(OLD._id, 'games', OLD.themes, new Date(Date.now() + 86_400_000)) as never));
+      expect((await next({})).puzzle.id).toBe(MATE2._id);
+      await withDb((db) => db.collection('cards').insertOne(card(MATE2._id, 'polgar', MATE2.themes, new Date(Date.now() + 86_400_000)) as never));
+      expect((await next({ rating: 1500 })).puzzle.id).toBe(MATE1._id);
+    });
   });
 });

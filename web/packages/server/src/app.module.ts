@@ -6,6 +6,7 @@ import { BoardService } from './board/board.service';
 import { InboxController } from './inbox/inbox.controller';
 import { InboxRepository } from './inbox/inbox-repository';
 import { InboxService } from './inbox/inbox.service';
+import { LessonController } from './lesson/lesson.controller';
 import { EngineModule } from './engine/engine.module';
 import { PanelService } from './panel/panel.service';
 import { PuzzleRepository } from './puzzles/puzzle-repository';
@@ -17,7 +18,7 @@ import { MongoBoardRepository } from './storage/mongo-board-repository';
 
 @Module({
   imports: [EngineModule],
-  controllers: [BoardController, PuzzlesController, InboxController],
+  controllers: [BoardController, PuzzlesController, InboxController, LessonController],
   providers: [
     BoardService,
     BoardGateway,

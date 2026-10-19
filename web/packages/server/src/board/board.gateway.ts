@@ -1,3 +1,4 @@
+import { OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -7,12 +8,23 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
+import type { IncomingMessage } from 'node:http';
 import type { Server, WebSocket } from 'ws';
-import type { DeleteBranchData, MoveData, NavigateData, ServerMessage } from '@board/shared';
+import { validateLessonSay, type DeleteBranchData, type LessonSayData, type MoveData, type NavigateData, type ServerMessage } from '@board/shared';
 import { PanelService } from '../panel/panel.service';
 import { BoardError } from './board-error';
+import { validated } from './validated';
 import { BoardService } from './board.service';
 import { allowedOrigins, originAllowed } from './origin';
+
+/** ?role=assistant в адресе подключения; всё остальное - обычный браузер. */
+function roleOf(req?: IncomingMessage): string | null {
+  try {
+    return new URL(req?.url ?? '', 'http://localhost').searchParams.get('role');
+  } catch {
+    return null;
+  }
+}
 
 @WebSocketGateway({
   path: '/ws',
@@ -20,8 +32,9 @@ import { allowedOrigins, originAllowed } from './origin';
   verifyClient: (info: { origin?: string }, done: (ok: boolean, code?: number, message?: string) => void) =>
     originAllowed(info.origin || undefined, allowedOrigins()) ? done(true) : done(false, 403, 'Forbidden origin'),
 })
-export class BoardGateway implements OnGatewayInit, OnGatewayConnection {
+export class BoardGateway implements OnGatewayInit, OnGatewayConnection, OnModuleDestroy {
   @WebSocketServer() server!: Server;
+  private stopping = false;
 
   constructor(
     private readonly board: BoardService,
@@ -33,10 +46,16 @@ export class BoardGateway implements OnGatewayInit, OnGatewayConnection {
     this.panel.analysis.subscribe((data) => this.broadcast({ event: 'analysis', data }));
   }
 
-  handleConnection(client: WebSocket): void {
+  /** При остановке сервера сокеты закрываются, а база уже закрывается: статус помощника не пишем. */
+  onModuleDestroy(): void {
+    this.stopping = true;
+  }
+
+  handleConnection(client: WebSocket, req?: IncomingMessage): void {
     this.send(client, { event: 'state', data: this.board.current });
     const latest = this.panel.latest();
     if (latest && latest.nodeId === this.board.current.cursor) this.send(client, { event: 'analysis', data: latest });
+    if (roleOf(req) === 'assistant') this.trackAssistant(client);
   }
 
   @SubscribeMessage('navigate')
@@ -67,6 +86,30 @@ export class BoardGateway implements OnGatewayInit, OnGatewayConnection {
   @SubscribeMessage('puzzleAnother')
   puzzleAnother(@ConnectedSocket() client: WebSocket): Promise<void> {
     return this.guard(client, () => this.board.puzzleAnother());
+  }
+
+  @SubscribeMessage('lessonSay')
+  lessonSay(@MessageBody() data: unknown, @ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.studentSay(validated<LessonSayData>(data, validateLessonSay).text));
+  }
+
+  @SubscribeMessage('lessonRetry')
+  lessonRetry(@ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.lessonRetry());
+  }
+
+  @SubscribeMessage('lessonNext')
+  lessonNext(@ConnectedSocket() client: WebSocket): Promise<void> {
+    return this.guard(client, () => this.board.lessonNext());
+  }
+
+  /** Сокет помощника занятий считается, пока открыт: занятие знает, есть ли кому отвечать. */
+  private trackAssistant(client: WebSocket): void {
+    const failed = (e: unknown): void => console.error(`board: cannot update the assistant status: ${String(e)}`);
+    this.board.assistantConnected(1).catch(failed);
+    client.once('close', () => {
+      if (!this.stopping) this.board.assistantConnected(-1).catch(failed);
+    });
   }
 
   private async guard(client: WebSocket, action: () => Promise<unknown>): Promise<void> {

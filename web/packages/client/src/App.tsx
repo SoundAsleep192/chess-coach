@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { NodeId } from '@board/shared';
 import { banner, canDrag } from './banner';
 import { BoardView } from './BoardView';
+import { EvalColumn, lessonScore } from './LessonEval';
+import { GameMovesButton } from './LessonGame';
+import { TypingDots } from './LessonHistory';
+import { LessonPanel } from './LessonPanel';
+import { lessonLayout, useViewport } from './lessonLayout';
 import { MoveList } from './MoveList';
 import { Panel } from './Panel';
 import { PromotionPicker } from './PromotionPicker';
@@ -9,6 +14,7 @@ import { PuzzleControls } from './PuzzleControls';
 import { dropToMove, promotionUci, type PromotionPiece } from './moves';
 import { navTarget, type NavKey } from './nav';
 import { useBoardSocket, type SocketFactory } from './useBoardSocket';
+import { useLessonReplay } from './useLessonReplay';
 
 const KEYS: Record<string, NavKey> = {
   ArrowLeft: 'prev',
@@ -32,10 +38,17 @@ export function App({ socket }: { socket?: SocketFactory }) {
   const { state, connected, error, send, analysis } = useBoardSocket(socket);
   const [flipped, setFlipped] = useState(false);
   const [pending, setPending] = useState<{ parentId: NodeId; from: string; to: string } | null>(null);
-  // Листать дерево можно только в свободном режиме: при заморозке и во время решения задачи - нельзя.
+  const replay = useLessonReplay(state);
+  const viewport = useViewport();
+  // Переключатель движка в занятии: выбор ученика живёт в пределах одной позиции и одного состояния помощника.
+  // Без выбора включён при подключённом помощнике и выключен без него: анализ позиции без помощника
+  // (лучший ход) не появляется, пока ученик сам не включит движок в этом состоянии.
+  const [engineChoice, setEngineChoice] = useState<{ key: string; on: boolean } | null>(null);
+  // Листать дерево можно только в свободном режиме: при заморозке, в задаче и в занятии - нельзя.
   // Без связи send молча теряет сообщения, поэтому действия блокируем так же, как при заморозке.
   const locked = state?.mode !== 'free' || !connected;
-  const dragging = state ? canDrag(state, connected) : false;
+  // Во время показа ходов тренера доска заблокирована: ходы отбрасываются, в очередь не ставятся.
+  const dragging = state ? canDrag(state, connected) && !replay.replaying : false;
 
   const go = useCallback(
     (key: NavKey) => {
@@ -53,7 +66,8 @@ export function App({ socket }: { socket?: SocketFactory }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const key = KEYS[e.key];
-      if (!key) return;
+      // стрелки и Home/End в поле ввода занятия двигают курсор текста, а не доску
+      if (!key || e.target instanceof HTMLInputElement) return;
       e.preventDefault();
       go(key);
     };
@@ -82,10 +96,74 @@ export function App({ socket }: { socket?: SocketFactory }) {
     setPending(null);
   };
 
-  const status = banner(state, connected);
   const errorText = (code: string, message: string) =>
     state.mode === 'puzzle' && code === 'frozen' ? 'Во время задачи можно только ходить' : (ERROR_TEXT[code] ?? message);
+  const promotion = pending && (
+    <PromotionPicker color={node.fen.split(' ')[1] === 'w' ? 'w' : 'b'} onPick={onPromote} onCancel={() => setPending(null)} />
+  );
 
+  const lesson = state.mode === 'lesson' ? state.lesson : undefined;
+  if (lesson) {
+    const layout = lessonLayout(viewport.w, viewport.h);
+    const status = banner(state, connected, replay.replaying ? replay : undefined);
+    const lead = status.muted ? status.text.slice(0, status.text.length - status.muted.length) : status.text;
+    const engineKey = `${lesson.lessonId}|${lesson.index}|${state.rootId}|${lesson.online}`;
+    const engine = {
+      on: engineChoice?.key === engineKey ? engineChoice.on : lesson.online,
+      set: (on: boolean) => setEngineChoice({ key: engineKey, on }),
+    };
+    // во время показа доска рисует показываемый узел, стрелки - только в конце
+    const shown = replay.shownNode ? { ...state.nodes[replay.shownNode], arrows: [] } : node;
+    const thinking = lesson.status === 'running' && lesson.online && lesson.phase === 'coach';
+    const boardLocked = thinking || replay.replaying;
+    return (
+      <div className={`lesson-app ${layout.mode}`}>
+        <header className={`lesson-status ${status.kind}`} role="status" data-testid="mode-banner">
+          <span className="lesson-status-text">
+            {status.kind === 'checking' && <span className="spinner" aria-hidden="true" />}
+            {lead}
+            {status.muted && <span className="muted">{status.muted}</span>}
+            {error && <span className="error"> · {errorText(error.code, error.message)}</span>}
+          </span>
+          {lesson.game && !(lesson.status === 'running' && !lesson.online) && <GameMovesButton game={lesson.game} />}
+        </header>
+        <main className="lesson-main">
+          <div className="lesson-board-group">
+            <EvalColumn score={lessonScore(state, analysis, engine.on)} orientation={state.orientation} height={layout.board} />
+            <div
+              className={`lesson-board${boardLocked ? ' locked' : ''}`}
+              style={{ width: layout.board, height: layout.board }}
+              data-testid="lesson-board"
+              data-node={shown.id}
+              data-can-move={String(dragging)}
+            >
+              <BoardView node={shown} orientation={state.orientation} canMove={dragging} onDrop={onDrop} />
+              {thinking && (
+                <div className="board-veil" data-testid="board-veil">
+                  <span>
+                    Тренер отвечает
+                    <TypingDots />
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          <LessonPanel
+            state={state}
+            analysis={analysis}
+            replay={replay}
+            connected={connected}
+            send={send}
+            layout={layout}
+            engine={engine}
+          />
+        </main>
+        {promotion}
+      </div>
+    );
+  }
+
+  const status = banner(state, connected);
   return (
     <div className="app">
       <div className={`status ${status.kind}`} role="status" data-testid="mode-banner">
@@ -116,13 +194,7 @@ export function App({ socket }: { socket?: SocketFactory }) {
           />
         </aside>
       </main>
-      {pending && (
-        <PromotionPicker
-          color={node.fen.split(' ')[1] === 'w' ? 'w' : 'b'}
-          onPick={onPromote}
-          onCancel={() => setPending(null)}
-        />
-      )}
+      {promotion}
     </div>
   );
 }

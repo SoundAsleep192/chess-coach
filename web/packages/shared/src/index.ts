@@ -1,6 +1,8 @@
+import type { LessonSayData, LessonView } from './lesson.ts';
+
 export type NodeId = string;
 export type Author = 'game' | 'coach' | 'student';
-export type Mode = 'frozen' | 'free' | 'puzzle';
+export type Mode = 'frozen' | 'free' | 'puzzle' | 'lesson';
 export type Orientation = 'white' | 'black';
 export type ArrowColor = 'green' | 'red' | 'blue';
 
@@ -52,9 +54,12 @@ export interface BoardState extends Tree {
   panel?: PanelSettings;
   /** Номер замены дерева; растёт при PUT /api/board и старте задачи. */
   treeEpoch?: number;
+  /** Занятие у доски (режим lesson). */
+  lesson?: LessonView;
 }
 
-export type ErrorCode = 'illegal' | 'frozen' | 'not_found' | 'forbidden' | 'storage' | 'bad_request';
+/** stale - ответ на уже обработанное событие занятия. */
+export type ErrorCode = 'illegal' | 'frozen' | 'not_found' | 'forbidden' | 'storage' | 'bad_request' | 'stale';
 
 export interface ErrorPayload {
   code: ErrorCode;
@@ -80,7 +85,10 @@ export type ClientMessage =
   | { event: 'deleteBranch'; data: DeleteBranchData }
   | { event: 'puzzleRetry'; data: PuzzleCommand }
   | { event: 'puzzleGiveUp'; data: PuzzleCommand }
-  | { event: 'puzzleAnother'; data: PuzzleCommand };
+  | { event: 'puzzleAnother'; data: PuzzleCommand }
+  | { event: 'lessonSay'; data: LessonSayData }
+  | { event: 'lessonRetry'; data: Record<string, never> }
+  | { event: 'lessonNext'; data: Record<string, never> };
 
 // HTTP: тренер -> сервер
 export type At = number | NodeId;
@@ -249,13 +257,14 @@ export interface PanelBody { eval?: boolean; lines?: number; note?: string | nul
 /** Оценка со стороны белых, san с номерами ходов. */
 export interface PanelLine { cp?: number; mate?: number; san: string[] }
 export type AnalysisStatus = 'pending' | 'ready' | 'unavailable';
-export interface AnalysisData { nodeId: NodeId; fen: string; status: AnalysisStatus; lines: PanelLine[] }
-export type InboxKind = 'line' | 'delete' | 'puzzle';
+export interface AnalysisData { nodeId: NodeId; fen: string; status: AnalysisStatus; lines: PanelLine[]; depth?: number }
+export type InboxKind = 'line' | 'delete' | 'puzzle' | 'lesson';
 export interface InboxEvent { id: number; at: string; kind: InboxKind; text: string }
 export interface InboxResponse { events: InboxEvent[]; more: number; cursor: string }
 export interface InboxAckBody { upto: number }
 
 export * from './engine.ts';
+export * from './lesson.ts';
 export * from './material.ts';
 export * from './outcome.ts';
 export * from './puzzle.ts';

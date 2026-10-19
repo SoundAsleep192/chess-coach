@@ -1,8 +1,10 @@
 :root { --bg:#f6f4ef; --fg:#1d1d1f; --muted:#6b6b6b; --card:#ffffff; --line:#e3e0d8;
-  --student:#3b7dd8; --coach:#a35fd0; --current:#f2d264; --frozen:#d64545; --free:#3fa34d; --weaker:#b7860b; }
+  --student:#3b7dd8; --coach:#a35fd0; --current:#f2d264; --frozen:#d64545; --free:#3fa34d; --weaker:#b7860b;
+  --off:#8a8a8a; --veil:rgba(246,244,239,.5); --soft:#f1eee8; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#17181a; --fg:#ececec; --muted:#9a9a9a; --card:#202225; --line:#33363a;
-    --student:#6ea8ff; --coach:#c792ea; --current:#7a6420; --weaker:#e0b84a; }
+    --student:#6ea8ff; --coach:#c792ea; --current:#7a6420; --weaker:#e0b84a;
+    --off:#6f7378; --veil:rgba(23,24,26,.5); --soft:#27292c; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -59,3 +61,93 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple
 .line-eval { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
 .coach-note { white-space: pre-wrap; margin-top: 6px; }
 .engine-lines + .coach-note { border-top: 1px solid var(--line); padding-top: 6px; }
+
+/* Занятие у доски: страница целиком в окне, прокручивается только история. Размеры доски и колонки считает lessonLayout. */
+.lesson-app { height: 100vh; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.lesson-status { flex: none; height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); font-weight: 600; }
+.lesson-status-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lesson-status .muted { color: var(--muted); font-weight: 400; }
+.lesson-status .error { font-weight: 400; color: var(--frozen); }
+.lesson-status.checking, .lesson-status.replay { color: var(--coach); }
+.lesson-status.unavailable { color: var(--frozen); }
+.lesson-status.offline { color: var(--muted); }
+.spinner { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.lesson-main { flex: 1; min-height: 0; display: flex; gap: 12px; justify-content: center; }
+.lesson-app.stack .lesson-main { flex-direction: column; align-items: center; }
+.lesson-app.columns .lesson-main { flex-direction: row; align-items: flex-start; }
+.lesson-board-group { flex: none; display: flex; }
+.lesson-bar { flex: none; width: 44px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-right: 8px; }
+.lesson-bar .eval-bar { position: relative; width: 14px; min-height: 0; background: #3a3a3a; }
+.lesson-bar .eval-bar::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--frozen); }
+.lesson-eval { font: 600 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.lesson-board { position: relative; flex: none; }
+.lesson-board.locked, .lesson-board.locked * { cursor: not-allowed !important; }
+.board-veil { position: absolute; inset: 0; z-index: 10; display: flex; align-items: flex-start; justify-content: center; padding-top: 12px; background: var(--veil); }
+.board-veil span { padding: 6px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--coach); font-weight: 600; }
+
+.lesson-col { flex: none; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.engine-strip { flex: none; display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.engine-toggle { position: relative; flex: none; display: inline-flex; padding-top: 1px; cursor: pointer; }
+.engine-toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.engine-toggle.locked { opacity: .6; cursor: not-allowed; }
+.engine-toggle.locked input { cursor: not-allowed; }
+.toggle-track { width: 30px; height: 18px; border-radius: 9px; background: var(--line); position: relative; transition: background .15s; }
+.toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); transition: transform .15s; }
+.engine-toggle input:checked + .toggle-track { background: var(--free); }
+.engine-toggle input:checked + .toggle-track::after { transform: translateX(12px); }
+.engine-toggle input:focus-visible + .toggle-track { outline: 2px solid var(--student); outline-offset: 2px; }
+.strip-body { flex: 1; min-width: 0; }
+.strip-closed { color: var(--muted); }
+.strip-row { display: flex; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip-row-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.strip-depth { flex: none; color: var(--muted); font-size: 12px; }
+.strip-header { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.strip-full .engine-lines li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip-replay { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.strip-move { padding: 0 3px; border-radius: 4px; }
+.strip-move.shown { color: var(--fg); }
+.strip-move.rest { color: var(--muted); }
+.strip-move.current { color: var(--fg); background: var(--current); }
+
+.lesson-history { flex: 1; min-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px; }
+.bubble { max-width: 85%; padding: 8px 12px; border-radius: 14px; overflow-wrap: anywhere; }
+.bubble.coach { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bubble.student { align-self: flex-end; background: var(--student); color: #fff; border-bottom-right-radius: 4px; }
+.bubble.typing { color: var(--coach); font-weight: 600; }
+.bubble-text + .bubble-text { margin-top: 6px; }
+.bubble-foot { margin-top: 6px; color: var(--coach); font-weight: 600; }
+.chip { align-self: flex-end; padding: 2px 10px; background: var(--soft); border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 13px; }
+.chip code { color: var(--fg); font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.badge { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; }
+.badge-correct { background: var(--free); }
+.badge-weaker { background: var(--weaker); color: #1d1d1f; }
+.badge-wrong { background: var(--frozen); }
+.badge-unavailable { background: var(--off); }
+.dots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite both; }
+.dots i:nth-child(2) { animation-delay: .2s; }
+.dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.lesson-actions { align-self: flex-start; display: flex; flex-wrap: wrap; gap: 8px; }
+.lesson-actions button { height: 32px; padding: 0 14px; font: inherit; font-size: 14px; font-weight: 600; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 16px; cursor: pointer; }
+.lesson-actions button.primary { background: color-mix(in oklch, var(--coach) 14%, var(--card)); border-color: color-mix(in oklch, var(--coach) 55%, transparent); }
+.lesson-actions button:disabled { opacity: .4; cursor: not-allowed; }
+
+.lesson-input { flex: none; height: 44px; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 22px; }
+.lesson-input input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--fg); font: inherit; }
+.lesson-input input:disabled { cursor: not-allowed; }
+.lesson-input button { flex: none; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--coach); color: #fff; font-size: 18px; cursor: pointer; }
+.lesson-input button:disabled { opacity: .4; cursor: not-allowed; }
+
+.game-dropdown { position: relative; flex: none; font-weight: 400; }
+.game-dropdown summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.game-dropdown summary::-webkit-details-marker { display: none; }
+.game-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(320px, calc(100vw - 48px)); max-height: 50vh; overflow: auto; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.game-moves { padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+.game-title { font-weight: 600; margin-bottom: 6px; }
+.game-table { border-collapse: collapse; font-size: 14px; }
+.game-table td { padding: 1px 6px; min-width: 64px; }
+.game-table td.game-no { width: 36px; min-width: 36px; padding-left: 0; color: var(--muted); }
+.game-table td.current { background: var(--current); border-radius: 4px; }
+.game-caption { margin-top: 6px; color: var(--muted); font-size: 12px; }

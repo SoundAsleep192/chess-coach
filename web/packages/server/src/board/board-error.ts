@@ -15,6 +15,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   forbidden: 403,
   not_found: 404,
   frozen: 409,
+  stale: 409,
   illegal: 422,
   storage: 503,
 };

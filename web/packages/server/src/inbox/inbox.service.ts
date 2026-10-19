@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import type { BoardState, InboxResponse, NodeId } from '@board/shared';
+import type { BoardState, InboxResponse, LessonReplyBody, NodeId } from '@board/shared';
 import {
   appendToLine,
   cursorLine,
   deleteDraft,
   eventText,
+  lessonDrafts,
   lineDraft,
   puzzleDraft,
   type Draft,
@@ -42,6 +43,16 @@ export class InboxService {
     this.enqueue(async () => {
       const draft = puzzleDraft(prev, next);
       if (draft) await this.insert(draft, await this.repo.last());
+    });
+  }
+
+  /**
+   * prev - состояние до ответа или остановки, next - после. note - заметка помощника; reply - тело ответа
+   * (реплика, оценка из ответа, итог серии), нужно для текстов, которых нет в состоянии.
+   */
+  recordLesson(prev: BoardState, next: BoardState, note?: string, reply?: Pick<LessonReplyBody, 'say' | 'verdict' | 'action'>): void {
+    this.enqueue(async () => {
+      for (const draft of lessonDrafts(prev, next, note, reply)) await this.insert(draft, await this.repo.last());
     });
   }
 

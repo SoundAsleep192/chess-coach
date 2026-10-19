@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LESSON_REPLAY_MS, type BoardState } from '@board/shared';
 import { App } from './App';
-import { FakeSocket, StateBuilder, fakeFactory, puzzleSession } from './test-utils';
+import { FakeSocket, StateBuilder, fakeFactory, puzzleSession, said } from './test-utils';
 
 beforeEach(() => {
   FakeSocket.all = [];
@@ -203,5 +204,132 @@ describe('App', () => {
     expect(retry.disabled).toBe(true);
     fireEvent.click(retry);
     expect(ws.sent).toEqual([]);
+  });
+});
+
+describe('App in a lesson', () => {
+  // корень n1; ход ученика e4 = n2; опровержение e5 Nf3 = n3, n4
+  const b = new StateBuilder();
+  const [e4, e5, nf3] = b.line(b.rootId, ['e4', 'e5', 'Nf3'], 'student');
+
+  // react-chessboard анимирует смену позиции по размеру клетки, а в jsdom размеры нулевые
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 50, 50));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function start(first: BoardState) {
+    render(<App socket={fakeFactory} />);
+    const ws = FakeSocket.last();
+    act(() => {
+      ws.open();
+      ws.emit({ event: 'state', data: first });
+    });
+    return { ws, emit: (s: BoardState) => act(() => ws.emit({ event: 'state', data: s })) };
+  }
+  const board = () => screen.getByTestId('lesson-board');
+  const canMove = () => board().getAttribute('data-can-move');
+  const phrase = () => screen.getByRole('textbox', { name: 'Фраза тренеру' }) as HTMLInputElement;
+
+  it('drag allowed only in phase student at lesson.node with the assistant online', () => {
+    const { emit, ws } = start(b.lesson(b.rootId, {}, 1));
+    expect(canMove()).toBe('true');
+    emit(b.lesson(e4, { phase: 'coach' }, 2));
+    expect(canMove()).toBe('false');
+    emit(b.lesson(e4, { phase: 'feedback' }, 3));
+    expect(canMove()).toBe('false');
+    emit(b.lesson(b.rootId, { online: false }, 4));
+    expect(canMove()).toBe('false');
+    emit(b.lesson(b.rootId, {}, 5));
+    expect(canMove()).toBe('true');
+    act(() => ws.onclose!());
+    expect(canMove()).toBe('false');
+  });
+
+  it('regular engine panel is not shown in lesson mode, only the lesson strip', () => {
+    const s: BoardState = { ...b.lesson(e4, { phase: 'pause', verdict: { kind: 'correct', score: { cp: 30 } } }), panel: { eval: true, lines: 3 } };
+    const { ws } = start(s);
+    act(() => ws.emit({ event: 'analysis', data: { nodeId: e4, fen: 'x', status: 'ready', depth: 20, lines: [{ cp: 30, san: ['1...e5'] }] } }));
+    expect(screen.queryByTestId('panel')).toBeNull();
+    expect(screen.getByTestId('engine-strip')).toBeTruthy();
+    // в занятии ходы не листаются: ни кнопок навигации, ни списка ходов дерева
+    expect(screen.queryByRole('button', { name: 'назад' })).toBeNull();
+    expect(document.querySelector('.moves')).toBeNull();
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(ws.sent).toEqual([]);
+    // стрелки в поле ввода остаются полю
+    expect(fireEvent.keyDown(phrase(), { key: 'ArrowLeft' })).toBe(true);
+    // шкала с числом из вердикта
+    expect(screen.getByTestId('lesson-eval').textContent).toBe('+0.3');
+    expect(screen.getByTestId('mode-banner').textContent).toContain('Занятие: проверяй ответ соперника · позиция 1/3');
+  });
+
+  it('engine choice resets when the assistant drops or the position changes', () => {
+    const toggle = () => screen.getByRole('switch', { name: 'Движок' }) as HTMLInputElement;
+    const analysisAt = (nodeId: string) => ({
+      event: 'analysis' as const,
+      data: { nodeId, fen: 'x', status: 'ready' as const, depth: 20, lines: [{ cp: 90, san: ['1.e4'] }] },
+    });
+    const { emit, ws } = start(b.lesson(e4, { phase: 'pause', verdict: { kind: 'correct', score: { cp: 30 } } }, 1));
+    // ученик выключил и снова включил движок в разборе
+    fireEvent.click(toggle());
+    expect(screen.queryByTestId('lesson-eval')).toBeNull();
+    fireEvent.click(toggle());
+    expect(screen.getByTestId('lesson-eval').textContent).toBe('+0.3');
+    // помощник отвалился, ученик думает над ходом: анализ позиции занятия не виден, пока не включит сам
+    emit(b.lesson(b.rootId, {}, 2));
+    emit(b.lesson(b.rootId, { online: false }, 3));
+    act(() => ws.emit(analysisAt(b.rootId)));
+    expect(toggle().checked).toBe(false);
+    expect(screen.queryByTestId('lesson-eval')).toBeNull();
+    expect(screen.getByTestId('engine-strip').textContent).not.toContain('1.e4');
+    fireEvent.click(toggle());
+    expect(screen.getByTestId('lesson-eval').textContent).toBe('+0.9');
+    // помощник вернулся, ученик выключил движок; новая позиция - снова по умолчанию (включён)
+    emit(b.lesson(e4, { phase: 'pause', verdict: { kind: 'correct', score: { cp: 30 } } }, 4));
+    fireEvent.click(toggle());
+    expect(screen.queryByTestId('lesson-eval')).toBeNull();
+    emit(b.lesson(e4, { index: 1, phase: 'pause', verdict: { kind: 'correct', score: { cp: 30 } } }, 5));
+    expect(screen.getByTestId('lesson-eval').textContent).toBe('+0.3');
+  });
+
+  it('coach phase: veil on the board, input disabled; replay: no veil, input disabled', () => {
+    vi.useFakeTimers();
+    try {
+      const { emit } = start(b.lesson(b.rootId, {}, 1));
+      expect(screen.queryByTestId('board-veil')).toBeNull();
+      emit(b.lesson(e4, { phase: 'coach', transcript: [said('student', 'move', '1.e4')] }, 2));
+      expect(screen.getByTestId('board-veil').textContent).toContain('Тренер отвечает');
+      expect(board().className).toContain('locked');
+      expect(phrase().disabled).toBe(true);
+      expect(screen.getByTestId('mode-banner').textContent).toContain('Тренер отвечает…');
+      // ответ с опровержением: показ по ходу раз в LESSON_REPLAY_MS, без вуали, всё выключено
+      emit(b.lesson(nf3, { phase: 'feedback', verdict: { kind: 'wrong', score: { cp: -110 } }, replay: { from: e4, to: nf3, id: 1 } }, 3));
+      expect(screen.queryByTestId('board-veil')).toBeNull();
+      expect(board().getAttribute('data-node')).toBe(e4);
+      expect(board().className).toContain('locked');
+      expect(phrase().disabled).toBe(true);
+      expect(phrase().placeholder).toBe('Подожди, идёт показ ходов');
+      expect((screen.getByRole('button', { name: 'Попробовать другой ход' }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('mode-banner').textContent).toContain('Показываю ходы… 0 из 2');
+      expect(document.querySelector('.strip-move.current')).toBeNull();
+      act(() => void vi.advanceTimersByTime(LESSON_REPLAY_MS));
+      expect(board().getAttribute('data-node')).toBe(e5);
+      expect(screen.getByTestId('mode-banner').textContent).toContain('Показываю ходы… 1 из 2');
+      expect(document.querySelector('.strip-move.current')!.textContent).toBe('1...e5');
+      act(() => void vi.advanceTimersByTime(LESSON_REPLAY_MS));
+      expect(board().getAttribute('data-node')).toBe(nf3);
+      expect(board().className).not.toContain('locked');
+      expect(phrase().disabled).toBe(false);
+      expect(screen.getByTestId('mode-banner').textContent).toContain('позиция 1/3');
+      // «Повторить показ» запускает показ заново без сервера
+      fireEvent.click(screen.getByRole('button', { name: 'Повторить показ' }));
+      expect(board().getAttribute('data-node')).toBe(e4);
+      expect(FakeSocket.last().sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

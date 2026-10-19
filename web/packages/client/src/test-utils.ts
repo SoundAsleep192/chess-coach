@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { Author, BoardNode, BoardState, Mode, NodeId, PuzzleSession, ServerMessage } from '@board/shared';
+import type { Author, BoardNode, BoardState, LessonEntry, LessonView, Mode, NodeId, PuzzleSession, ServerMessage } from '@board/shared';
 import type { SocketLike } from './useBoardSocket';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -26,6 +26,29 @@ export function puzzleSession(over: Partial<PuzzleSession> = {}): PuzzleSession 
     bonus: false,
     ...over,
   };
+}
+
+/** Занятие у доски в фазе student с позиции n1, первая позиция из трёх (index с нуля); поля можно переопределить. */
+export function lessonView(over: Partial<LessonView> = {}): LessonView {
+  return {
+    lessonId: 'L1',
+    title: 'проверяй ответ соперника',
+    status: 'running',
+    index: 0,
+    total: 3,
+    label: 'Партия 1',
+    phase: 'student',
+    node: 'n1',
+    transcript: [],
+    seq: 0,
+    online: true,
+    ...over,
+  };
+}
+
+/** Запись истории занятия. */
+export function said(who: LessonEntry['who'], kind: LessonEntry['kind'], text: string): LessonEntry {
+  return { who, kind, text, at: '2026-10-18T10:00:00.000Z' };
 }
 
 /** Построитель состояния для тестов: ходы в SAN, id узлов n1 (корень), n2, ... */
@@ -57,6 +80,11 @@ export class StateBuilder {
       ids.push(cur);
     }
     return ids;
+  }
+
+  /** Состояние в режиме lesson; узел занятия по умолчанию - корень. */
+  lesson(cursor: NodeId, over: Partial<LessonView> = {}, version = 1): BoardState {
+    return { ...this.build(cursor, 'lesson', version), lesson: lessonView({ node: this.rootId, ...over }) };
   }
 
   build(cursor: NodeId, mode: Mode = 'free', version = 1): BoardState {

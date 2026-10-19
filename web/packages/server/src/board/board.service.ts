@@ -7,6 +7,9 @@ import type {
   BoardState,
   CursorBody,
   EngineLine,
+  LessonReplyBody,
+  LessonStartBody,
+  LessonVerdictBody,
   Mode,
   NodeId,
   PanelBody,
@@ -43,6 +46,19 @@ import {
   type Step,
 } from '../puzzles/puzzle-flow';
 import { InboxService } from '../inbox/inbox.service';
+import {
+  applyLessonReply,
+  applyLessonVerdict,
+  isLessonRunning,
+  LESSON_RUNNING,
+  lessonMove,
+  lessonNext,
+  lessonRetry,
+  lessonSay,
+  setAssistantOnline,
+  startLesson,
+  stopLesson,
+} from '../lesson/lesson-flow';
 import { panelOf } from '../panel/panel-settings';
 import { PuzzleSolver } from '../puzzles/puzzle-solver';
 import { TreeError } from '../tree/tree-error';
@@ -57,6 +73,8 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   private replyTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly replyMs = Number(process.env.PUZZLE_REPLY_MS ?? 500);
   private closed = false;
+  /** Подключённые сокеты помощника занятий (/ws?role=assistant). */
+  private assistants = 0;
 
   constructor(
     private readonly repo: BoardRepository,
@@ -72,7 +90,8 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
       saved.puzzle = undefined;
     }
     if (saved) {
-      this.state = saved;
+      // после перезапуска сервера помощник не подключён, даже если занятие в базе было онлайн
+      this.state = saved.lesson ? setAssistantOnline(saved, false) : saved;
       // перезапуск во время проверки хода: проверить заново; во время ответа соперника - снова завести таймер
       const check = pendingCheck(saved);
       if (check) this.runCheck(check);
@@ -116,6 +135,7 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
 
   replace(body: ReplaceBody): Promise<BoardState> {
     return this.mutate((s) => {
+      this.assertNoLesson(s);
       if (!body.pgn && body.fen === undefined && !body.moves) {
         throw new BoardError('bad_request', 'PUT /api/board needs pgn or fen/moves');
       }
@@ -130,8 +150,9 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
         ...s,
         ...tree,
         orientation: body.orientation ?? s.orientation,
-        mode: s.mode === 'puzzle' ? 'free' : s.mode,
+        mode: s.mode === 'puzzle' || s.mode === 'lesson' ? 'free' : s.mode,
         puzzle: undefined,
+        lesson: undefined,
         treeEpoch: (s.treeEpoch ?? 0) + 1,
         panel: PANEL_OFF,
         meta: { title: body.title, gameId: body.gameId, plyOffset: tree.nodes[tree.rootId].ply },
@@ -141,8 +162,12 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
 
   /** Задача на доске: корень - позиция задачи, ход решающего снизу. Анализ корня - до первого состояния, не дольше PUZZLE_ROOT_MS. */
   async startPuzzle(p: PuzzleStart): Promise<BoardState> {
+    this.assertNoLesson(this.state); // быстрый отказ без анализа корня; решает проверка внутри mutate
     const root = await this.solver.rootInfo(p.fen, p.solution[0]);
-    const state = await this.mutate((s) => ({ ...startSession(s, p, root, new Date()), treeEpoch: (s.treeEpoch ?? 0) + 1, panel: PANEL_OFF }));
+    const state = await this.mutate((s) => {
+      this.assertNoLesson(s);
+      return { ...startSession(s, p, root, new Date()), treeEpoch: (s.treeEpoch ?? 0) + 1, panel: PANEL_OFF, lesson: undefined };
+    });
     this.afterPuzzleChange();
     return state;
   }
@@ -161,6 +186,7 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
 
   setCursor(body: CursorBody): Promise<BoardState> {
     return this.mutate((s) => {
+      this.assertNoLesson(s);
       const target = this.resolveAt(s, body.at);
       const nodes = structuredClone(s.nodes);
       if (body.arrows !== undefined) nodes[target.id].arrows = body.arrows;
@@ -171,8 +197,9 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
 
   setMode(mode: Mode): Promise<BoardState> {
     return this.mutate((s) => {
+      this.assertNoLesson(s);
       if (mode !== 'free' && mode !== 'frozen') throw new BoardError('bad_request', `bad mode ${String(mode)}`);
-      return { ...s, mode, puzzle: undefined };
+      return { ...s, mode, puzzle: undefined, lesson: undefined };
     });
   }
 
@@ -189,7 +216,10 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
   }
 
   deleteNode(nodeId: NodeId): Promise<BoardState> {
-    return this.mutate((s) => ({ ...s, ...deleteBranch(treeOf(s), nodeId) }));
+    return this.mutate((s) => {
+      this.assertNoLesson(s);
+      return { ...s, ...deleteBranch(treeOf(s), nodeId) };
+    });
   }
 
   studentNavigate(nodeId: NodeId): Promise<BoardState> {
@@ -208,6 +238,8 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
         const lines = node ? this.solver.cachedLines(node.fen) : undefined;
         return playMove(s, parentId, uci, lines?.[0], new Date(), lines);
       }
+      // ход в занятии разбирает lessonMove: в режиме lesson assertFree отказал бы любому ходу
+      if (s.mode === 'lesson') return { state: lessonMove(s, parentId, uci, new Date()), finished: null };
       this.assertFree(s);
       if (!s.nodes[parentId]) {
         throw new BoardError('not_found', `node ${parentId} not found (the board was probably replaced)`);
@@ -219,6 +251,57 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
       if (freeNode) this.inbox.recordMove(state, freeNode);
       return state;
     });
+  }
+
+  /** Старт занятия. online - есть ли сейчас подключённый помощник: он подключается раньше, чем присылает старт. */
+  startLesson(body: LessonStartBody): Promise<BoardState> {
+    return this.mutate((s) => startLesson(s, body, new Date(), this.assistants > 0));
+  }
+
+  lessonVerdict(body: LessonVerdictBody): Promise<BoardState> {
+    return this.mutate((s) => applyLessonVerdict(s, body, new Date()));
+  }
+
+  lessonReply(body: LessonReplyBody): Promise<BoardState> {
+    let prev!: BoardState;
+    return this.mutate((s) => {
+      prev = s;
+      return applyLessonReply(s, body, new Date());
+    }).then((state) => {
+      this.inbox.recordLesson(prev, state, body.note, body);
+      return state;
+    });
+  }
+
+  /** Остановка. Если занятие не идёт (закончено, остановлено, не было), состояние возвращается как есть, без события. */
+  stopLesson(): Promise<BoardState> {
+    let prev!: BoardState;
+    return this.mutate((s) => {
+      prev = s;
+      return isLessonRunning(s) ? stopLesson(s, new Date()) : s;
+    }).then((state) => {
+      if (state !== prev) this.inbox.recordLesson(prev, state);
+      return state;
+    });
+  }
+
+  studentSay(text: string): Promise<BoardState> {
+    return this.mutate((s) => lessonSay(s, text, new Date()));
+  }
+
+  lessonRetry(): Promise<BoardState> {
+    return this.mutate((s) => lessonRetry(s));
+  }
+
+  lessonNext(): Promise<BoardState> {
+    return this.mutate((s) => lessonNext(s, new Date()));
+  }
+
+  /** Сокет помощника подключился (+1) или закрылся (-1); занятие узнаёт об этом сразу. */
+  assistantConnected(delta: 1 | -1): Promise<BoardState> {
+    this.assistants = Math.max(0, this.assistants + delta);
+    const online = this.assistants > 0;
+    return this.mutate((s) => (s.lesson && s.lesson.online !== online ? setAssistantOnline(s, online) : s));
   }
 
   /** «Ещё раз» после ошибки или хода «слабее». */
@@ -325,9 +408,14 @@ export class BoardService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  private assertNoLesson(s: BoardState): void {
+    if (isLessonRunning(s)) throw new BoardError('forbidden', LESSON_RUNNING);
+  }
+
   private assertFree(s: BoardState): void {
     if (s.mode === 'frozen') throw new BoardError('frozen', 'the board is frozen by the coach');
     if (s.mode === 'puzzle') throw new BoardError('frozen', 'a puzzle is being solved: only a move from the puzzle position counts');
+    if (s.mode === 'lesson') throw new BoardError('frozen', 'a lesson is on the board: only a move from the lesson position counts');
   }
 
   private resolveAt(s: BoardState, at: At): BoardNode {

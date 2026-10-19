@@ -1,6 +1,8 @@
-import type { Author, BoardNode, BoardState, InboxKind, NodeId } from '@board/shared';
+import { LESSON_VERDICT_WORD } from '@board/shared';
+import type { Author, BoardNode, BoardState, InboxKind, LessonReplyBody, NodeId, Score } from '@board/shared';
 
 export type PuzzleOutcome = 'wrong' | 'weaker' | 'solved' | 'gaveUp';
+export type LessonEventKind = 'move' | 'say' | 'next' | 'end' | 'stop';
 
 /** Документ коллекции inbox. */
 export interface StoredEvent {
@@ -27,6 +29,22 @@ export interface StoredEvent {
   errors?: number;
   bonus?: boolean;
   answer?: string;
+  // lesson
+  lessonEvent?: LessonEventKind;
+  lessonId?: string;
+  title?: string;
+  /** Номер позиции из total, с единицы. */
+  pos?: number;
+  total?: number;
+  /** Слово плашки вердикта в нижнем регистре. */
+  verdict?: string;
+  /** Оценка со стороны белых, готовая строка: +1.1, #-3. */
+  score?: string;
+  studentText?: string;
+  say?: string;
+  note?: string;
+  modelCalls?: number;
+  fallbacks?: number;
 }
 
 /** Событие до записи: текст собирает eventText. */
@@ -126,7 +144,81 @@ export function puzzleDraft(prev: BoardState, next: BoardState): Draft | null {
   return null;
 }
 
+/** Оценка со стороны белых как в выводе coach: +1.1, -1.1, 0.0, #3, #-3 (минус ASCII). */
+export function scoreText(score: Score): string {
+  if (score.mate !== undefined) return `#${score.mate}`;
+  const cp = score.cp ?? 0;
+  const text = (Math.abs(cp) / 100).toFixed(1);
+  return cp > 0 ? `+${text}` : cp < 0 ? `-${text}` : text;
+}
+
+type LessonReplyPart = Pick<LessonReplyBody, 'say' | 'verdict' | 'action'>;
+
+/**
+ * События занятия по разнице состояний. prev - до ответа или остановки: ожидавшее событие и вердикт берутся из него,
+ * в next их уже нет. reply - тело ответа (реплика, оценка из ответа, итог серии); note - заметка помощника.
+ * Конец серии пишется после события, на которое он ответил. Пустой список - писать нечего.
+ */
+export function lessonDrafts(prev: BoardState, next: BoardState, note?: string, reply?: LessonReplyPart): Draft[] {
+  const p = prev.lesson;
+  const n = next.lesson;
+  if (!p || !n || p.lessonId !== n.lessonId || p.status !== 'running') return [];
+  const base = { kind: 'lesson' as const, treeEpoch: epochOf(next), lessonId: p.lessonId, title: p.title, pos: p.index + 1, total: p.total };
+  if (n.status === 'stopped') return [{ ...base, lessonEvent: 'stop' }];
+  if (!p.pending || n.pending) return [];
+  const say = reply?.say?.trim();
+  const noted = note ? { note } : {};
+  const said = say ? { say } : {};
+  const out: Draft[] = [];
+  const input = p.pending;
+  if (input.kind === 'move') {
+    const verdict = p.verdict ?? reply?.verdict;
+    const node = prev.nodes[input.node];
+    const word = verdict && verdict.kind !== 'info' ? LESSON_VERDICT_WORD[verdict.kind].toLowerCase() : undefined;
+    out.push({
+      ...base,
+      lessonEvent: 'move',
+      san: moveToken(prev.nodes[node.parent!].fen, input.san, true),
+      ...(word ? { verdict: word } : {}),
+      ...(verdict?.score ? { score: scoreText(verdict.score) } : {}),
+      ...said,
+      ...noted,
+    });
+  } else if (input.kind === 'say') {
+    out.push({ ...base, lessonEvent: 'say', studentText: input.text, ...said, ...noted });
+  } else if (say || note) {
+    out.push({ ...base, lessonEvent: 'next', ...said, ...noted });
+  }
+  if (n.status === 'done') {
+    const stats = reply?.action.type === 'end' ? reply.action.stats : undefined;
+    out.push({ ...base, pos: p.total, lessonEvent: 'end', modelCalls: stats?.modelCalls ?? 0, fallbacks: stats?.fallbacks ?? 0 });
+  }
+  return out;
+}
+
+function lessonText(e: Draft): string {
+  const head = `Занятие «${e.title}»`;
+  const where = `${head}, позиция ${e.pos}/${e.total}`;
+  if (e.lessonEvent === 'end') {
+    return `${head} закончено: ${e.total} из ${e.total} позиций, вызовов модели ${e.modelCalls}, заготовленных реплик ${e.fallbacks}. Журнал: uv run coach lesson journal ${e.lessonId}`;
+  }
+  if (e.lessonEvent === 'stop') {
+    return `${head} остановлено на позиции ${e.pos}/${e.total}. Продолжить: uv run coach lesson start ${e.lessonId} --resume`;
+  }
+  const parts: string[] = [];
+  if (e.lessonEvent === 'move') {
+    parts.push(`${e.san}${e.verdict ? ` - ${e.verdict}` : ''}${e.score ? ` (${e.score})` : ''}`);
+  } else if (e.lessonEvent === 'say') {
+    parts.push(`ученик: «${e.studentText}»`);
+  } else {
+    parts.push('ученик нажал «Дальше»');
+  }
+  if (e.say) parts.push(`Тренер: «${e.say}»`);
+  return `${where}: ${parts.join('. ')}${e.note ? ` [заметка: ${e.note}]` : ''}`;
+}
+
 export function eventText(e: Draft): string {
+  if (e.kind === 'lesson') return lessonText(e);
   if (e.kind === 'line') {
     const nodes = e.nodes!;
     const where = nodes.length > 1 ? `узлы ${nodes[0]}-${nodes.at(-1)}` : `узел ${nodes[0]}`;

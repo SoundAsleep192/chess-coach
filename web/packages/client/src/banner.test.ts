@@ -44,6 +44,43 @@ describe('banner', () => {
   });
 });
 
+describe('banner in a lesson', () => {
+  const b = new StateBuilder();
+  const [e4] = b.line(b.rootId, ['e4'], 'student');
+
+  it('lesson banner, coach thinking, assistant offline', () => {
+    expect(banner(b.lesson(b.rootId), true)).toEqual({
+      kind: 'lesson',
+      text: 'Занятие: проверяй ответ соперника · позиция 1/3',
+      muted: ' · позиция 1/3',
+    });
+    expect(banner(b.lesson(e4, { phase: 'coach' }), true)).toEqual({ kind: 'checking', text: 'Тренер отвечает…' });
+    expect(banner(b.lesson(b.rootId, { online: false }), true)).toEqual({
+      kind: 'unavailable',
+      text: 'Помощник у доски не подключён. Напиши тренеру в чат',
+    });
+    // без помощника и в фазе coach главное - что помощника нет
+    expect(banner(b.lesson(e4, { online: false, phase: 'coach' }), true).kind).toBe('unavailable');
+    expect(banner(b.lesson(b.rootId), false).kind).toBe('offline');
+  });
+
+  it('replay progress and the end of the series', () => {
+    expect(banner(b.lesson(e4, { phase: 'feedback' }), true, { step: 1, total: 3 })).toEqual({
+      kind: 'replay',
+      text: 'Показываю ходы… 1 из 3',
+    });
+    // k - ходов уже на доске: до первого хода показа ноль
+    expect(banner(b.lesson(e4, { phase: 'feedback' }), true, { step: 0, total: 3 }).text).toBe('Показываю ходы… 0 из 3');
+    expect(banner(b.lesson(e4, { index: 1 }), true).text).toBe('Занятие: проверяй ответ соперника · позиция 2/3');
+    // в конце серии index остаётся у последней позиции (с нуля)
+    expect(banner(b.lesson(e4, { status: 'done', phase: 'done', index: 2, total: 3, online: false }), true)).toEqual({
+      kind: 'lesson',
+      text: 'Занятие: проверяй ответ соперника · серия пройдена, 3/3',
+      muted: ' · серия пройдена, 3/3',
+    });
+  });
+});
+
 describe('canDrag', () => {
   it('lets the solver move only when the server waits for a move, and anyone move in free mode', () => {
     expect(canDrag(withPuzzle('free'), true)).toBe(true);
@@ -51,6 +88,19 @@ describe('canDrag', () => {
     expect(canDrag(withPuzzle('puzzle', { phase: 'move' }), true)).toBe(true);
     expect(canDrag(withPuzzle('free', { status: 'failed' }), true)).toBe(true);
     expect(canDrag(withPuzzle('puzzle', { phase: 'move' }), false)).toBe(false);
+  });
+
+  it('drag in a lesson only in phase student at lesson.node with the assistant online', () => {
+    const b = new StateBuilder();
+    const [e4] = b.line(b.rootId, ['e4'], 'student');
+    expect(canDrag(b.lesson(b.rootId), true)).toBe(true);
+    expect(canDrag(b.lesson(b.rootId), false)).toBe(false);
+    expect(canDrag(b.lesson(e4), true)).toBe(false);
+    expect(canDrag(b.lesson(b.rootId, { online: false }), true)).toBe(false);
+    for (const phase of ['coach', 'feedback', 'pause', 'done'] as const) {
+      expect(canDrag(b.lesson(b.rootId, { phase }), true)).toBe(false);
+    }
+    expect(canDrag(b.lesson(b.rootId, { status: 'done' }), true)).toBe(false);
   });
 
   it('blocks dragging while a move is checked, the reply is pending or a verdict waits for «Ещё раз»', () => {

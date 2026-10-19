@@ -6,7 +6,7 @@ A personal chess coach built on [Claude Code](https://claude.com/claude-code): S
 
 ![A lesson at the board: the coach sets a task, the student plays a move, the coach says it is a mistake and replays the refutation on the board](docs/media/lesson.gif)
 
-*A lesson at the board (in progress): the student answers on the board, the coach judges the move with the engine and replays the refutation move by move. The interface strings in this demo are translated to English; the app's own interface is in Russian.*
+*A lesson at the board (in progress): the student answers on the board, the coach judges the move with the engine and replays the refutation move by move.*
 
 ## What It Does
 
@@ -20,8 +20,6 @@ A personal chess coach built on [Claude Code](https://claude.com/claude-code): S
 - **In progress**: lessons at the board, where the coach plays through positions with the student move by move and reacts to the student's reasoning, not only to the move.
 
 ## Screenshots
-
-The board and reports are in Russian, like the coaching language.
 
 ![The board with a reviewed game: a coach line with an arrow, the eval bar and three engine lines next to the board](docs/media/board-review.png)
 

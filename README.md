@@ -4,6 +4,10 @@ A personal chess coach built on [Claude Code](https://claude.com/claude-code): S
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![A lesson at the board: the coach sets a task, the student plays a move, the coach says it is a mistake and replays the refutation on the board](docs/media/lesson.gif)
+
+*A lesson at the board (in progress): the student answers on the board, the coach judges the move with the engine and replays the refutation move by move. The UI is in Russian.*
+
 ## What It Does
 
 - **Game import** from Lichess and chess.com, plus over-the-board games from a Lichess study or a PGN file.
@@ -14,6 +18,22 @@ A personal chess coach built on [Claude Code](https://claude.com/claude-code): S
 - **Puzzles** solved on the board with the mouse, with FSRS spaced repetition. Sources: the Lichess puzzle database, puzzle books you own (imported locally), and puzzles generated from missed tactics in your own reviewed games. Every move is judged by the engine, so equivalent alternatives are accepted and wrong moves are refuted on the board.
 - **Player model**: `profile/player.md` keeps ratings, goals, repertoire, confirmed weaknesses with examples, strengths, a training plan and a session log. The coach updates it after every review.
 - **In progress**: lessons at the board, where the coach plays through positions with the student move by move and reacts to the student's reasoning, not only to the move.
+
+## Screenshots
+
+The board and reports are in Russian, like the coaching language.
+
+![The board with a reviewed game: a coach line with an arrow, the eval bar and three engine lines next to the board](docs/media/board-review.png)
+
+*The live board: a reviewed game, a line the coach added with an arrow and a caption, and the engine panel (eval bar and three lines).*
+
+![A puzzle taken from the student's own game, shown before any move](docs/media/puzzle.png)
+
+*A puzzle generated from a missed tactic in the student's own game, as served: the student solves it with the mouse.*
+
+![HTML review report: evaluation chart, summary and the first key moment with a board](docs/media/report.png)
+
+*An HTML review report: evaluation chart, the coach's summary and key moments with boards.*
 
 ## How It Works
 

@@ -1,54 +1,54 @@
 ---
 name: review-game
-description: Разбор партии ученика с движком по ссылке Lichess/chess.com, id, «последняя» или «последнее поражение». Используй, когда ученик просит разобрать партию или присылает ссылку на неё.
+description: Review the student's game with the engine from a Lichess/chess.com link, an id, «последняя» (the latest) or «последнее поражение» (the latest loss). Use when the student asks to review a game, for example «разбери партию» (review the game), or sends a link to one.
 ---
 
-# Разбор партии
+# Game Review
 
-## 1. Найти партию
+## 1. Find the Game
 
-- Ссылка или id с Lichess: `uv run coach review <ref>` сам скачает партию.
-- chess.com: сначала `uv run coach fetch --source chesscom`, потом `uv run coach review <id>`.
-- «Последняя» → `latest`, «последнее поражение» → `last-loss`.
-- Если непонятно, о какой партии речь: `uv run coach games --limit 10` и спроси.
+- Lichess link or id: `uv run coach review <ref>` downloads the game itself.
+- chess.com: first `uv run coach fetch --source chesscom`, then `uv run coach review <id>`.
+- «Последняя» (the latest) → `latest`, «последнее поражение» (the latest loss) → `last-loss`.
+- If it is unclear which game is meant: `uv run coach games --limit 10` and ask.
 
-## 2. Прогнать движок
+## 2. Run the Engine
 
-`uv run coach review <ref>` занимает 1–3 минуты. Скажи ученику, что запустил. Прочитай вывод. Если нужны детали (часы, все ходы), смотри `data/reviews/<id>.json`.
+`uv run coach review <ref>` takes 1-3 minutes. Tell the student you started it. Read the output. If you need details (clock times, all moves), look at `data/reviews/<id>.json`.
 
-## 3. Спросить впечатление
+## 3. Ask for Impressions
 
-Пока разбор считается, спроси одним сообщением: где, по ощущению ученика, партия сломалась, был ли цейтнот, что было непонятно. Его ответ подскажет, какие моменты брать.
+While the review is running, ask in one message: where, in the student's view, the game broke down, whether there was time trouble, what was unclear. Their answer will suggest which moments to take.
 
-## 4. Выбрать 3–5 моментов
+## 4. Pick 3-5 Moments
 
-Приоритет:
-1. Зевки.
-2. Упущенные шансы (`MISSED-CHANCE`).
-3. Ошибки, повторяющие паттерны из профиля.
-4. Ошибки в цейтноте. Здесь урок про распределение времени, а не про шахматы.
+Priority:
+1. Blunders.
+2. Missed chances (`MISSED-CHANCE`).
+3. Mistakes that repeat patterns from the profile.
+4. Mistakes in time trouble. Here the lesson is about time management, not about chess.
 
-Неточности в дебюте пропускай, если они не повторяются из партии в партию.
+Skip opening inaccuracies unless they repeat from game to game.
 
-## 5. Каждый момент
+## 5. Each Moment
 
-1. `uv run coach show --game <id> --ply <N> --caption "Ход за чёрных. Что играешь?"` (в первый раз добавь `--open`). Стрелку лучшего хода не рисуй.
-2. Спроси, что он сыграл бы сейчас и о чём думал тогда. Дождись ответа.
-3. Если ученик предлагает ход, проверь его: `uv run coach analyze --game <id> --ply <N> --moves "<ход>"`. Не оценивай на глаз.
-4. Объясни, почему сыгранный ход плох (опровержение есть в выводе review, строка «after …»), что было лучше и, главное, по какой идее этот ход можно было найти за доской. Затем покажи `coach show ... --played X --best Y`.
-5. Сформулируй урок в одну фразу и отнеси ошибку к категории из CLAUDE.md.
+1. `uv run coach show --game <id> --ply <N> --caption "Ход за чёрных. Что играешь?"` (Black to move. What do you play?; the first time add `--open`). Do not draw the best-move arrow.
+2. Ask what the student would play now and what they were thinking then. Wait for the answer.
+3. If the student suggests a move, check it: `uv run coach analyze --game <id> --ply <N> --moves "<move>"`. Do not judge by eye.
+4. Explain why the played move is bad (the refutation is in the review output, the "after …" line), what was better and, most importantly, by what idea this move could have been found at the board. Then show `coach show ... --played X --best Y`.
+5. State the lesson in one sentence and assign the mistake to a category from CLAUDE.md.
 
-## 6. Итог
+## 6. Wrap-Up
 
-Один главный вывод и 1–2 упражнения. Упражнение — FEN критического момента с заданием «найди ход за …». Решение сразу не показывай.
+One main takeaway and 1-2 exercises. An exercise is the FEN of a critical moment with the task "find the move for …". Do not show the solution right away.
 
-## 7. Отчёт
+## 7. Report
 
-Запиши пояснения в `data/reviews/<id>.notes.json`: ключ — номер полухода, плюс `_summary` с итогом. Потом выполни `uv run coach report <id>`, отчёт откроется в браузере.
+Write your notes into `data/reviews/<id>.notes.json`: the key is the half-move number, plus `_summary` with the summary. Then run `uv run coach report <id>`, the report opens in the browser.
 
-## 8. Профиль
+## 8. Profile
 
-Обнови `profile/player.md`:
-- Категория уже есть в «Слабостях»: +1 к счётчику и пример `id · полуход`.
-- Новая категория: запиши в «Наблюдения». Перенеси в «Слабости», когда встретится второй раз.
-- Добавь строку в журнал занятий.
+Update `profile/player.md`:
+- The category is already under «Слабости» (Weaknesses): +1 to the counter and an example `id · half-move`.
+- A new category: record it under «Наблюдения» (Observations). Move it to «Слабости» when it occurs a second time.
+- Add a line to the session log («Журнал занятий»).

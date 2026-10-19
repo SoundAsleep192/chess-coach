@@ -1,52 +1,52 @@
 ---
 name: build-profile
-description: Первое занятие и обновление модели ученика. Скачать партии с Lichess и chess.com, собрать статистику, разобрать пачку поражений, заполнить profile/player.md и план тренировок. Используй при первом запуске, если профиль пустой, или по просьбе «обнови профиль», «что мне тренировать».
+description: First session and updating the student model. Download games from Lichess and chess.com, collect statistics, review a batch of losses, fill in profile/player.md and the training plan. Use on first run, if the profile is empty, or when asked «обнови профиль» (update the profile), «что мне тренировать» (what should I train).
 ---
 
-# Профиль ученика
+# Student Profile
 
-## 1. Проверить окружение
+## 1. Check the Environment
 
-`uv run coach doctor`. Если движок не найден, выполни SETUP.md.
+`uv run coach doctor`. If the engine is not found, follow SETUP.md.
 
-## 2. Скачать партии
+## 2. Download Games
 
-`uv run coach fetch`. В первый раз скачиваются партии за 180 дней. Если игр мало, повтори с `--days 365`.
+`uv run coach fetch`. The first time it downloads games for 180 days. If there are few games, repeat with `--days 365`.
 
-## 3. Статистика
+## 3. Statistics
 
-`uv run coach stats`. Определи основной контроль (где больше всего партий), текущие рейтинги и дебюты со счётом ниже 40%.
+`uv run coach stats`. Determine the main time control (the one with the most games), current ratings and openings with a score below 40%.
 
-## 4. Интервью
+## 4. Interview
 
-Одним сообщением, не больше 5 вопросов:
-- Цель: рейтинг, турнир или просто удовольствие от игры.
-- Какой контроль главный и хочет ли он его менять.
-- Сколько времени в неделю готов тратить на тренировки.
-- Что сам считает своими слабыми местами.
-- Опыт: как давно играет, был ли тренер или кружок, какие книги читал.
+In one message, no more than 5 questions:
+- Goal: rating, a tournament, or just enjoying the game.
+- Which time control is the main one and whether they want to change it.
+- How much time per week they are ready to spend on training.
+- What they themselves consider their weak spots.
+- Experience: how long they have been playing, whether they had a coach or a club, which books they have read.
 
-## 5. Пакетный разбор
+## 5. Batch Review
 
-Это сбор данных. С учеником каждую партию не обсуждай.
+This is data collection. Do not discuss each game with the student.
 
-1. Получи список: `uv run coach games --result loss --tc <основной> --unreviewed --limit 8`, плюс 2–3 последние победы.
-2. По каждой запусти `uv run coach review <id> --deep-time 1.5`. Это примерно минута на партию. Скажи ученику, сколько это займёт.
-3. Пройди по критическим моментам каждого разбора и отнеси ошибки к категориям из CLAUDE.md. Для неочевидных моментов проверяй вывод `analyze`.
+1. Get the list: `uv run coach games --result loss --tc <main> --unreviewed --limit 8`, plus 2-3 recent wins.
+2. For each one run `uv run coach review <id> --deep-time 1.5`. This takes about a minute per game. Tell the student how long it will take.
+3. Go through the critical moments of each review and assign the mistakes to the categories from CLAUDE.md. For non-obvious moments check the `analyze` output.
 
-## 6. Сводка
+## 6. Summary
 
-`uv run coach stats`, раздел REVIEWS: ошибки по фазам, цейтнот, упущенные шансы.
+`uv run coach stats`, the REVIEWS section: mistakes by phase, time trouble, missed chances.
 
-## 7. Заполнить profile/player.md
+## 7. Fill In profile/player.md
 
-- Рейтинги и основной контроль.
-- Цели из интервью.
-- Репертуар по статистике дебютов.
-- Слабости: только подтверждённые (2+ случая), с примерами `id · полуход`.
-- Сильные стороны.
-- План на 2 недели: 3–4 занятия, для каждого — что делаем и чем.
+- Ratings and main time control.
+- Goals from the interview.
+- Repertoire from the opening statistics.
+- Weaknesses: only confirmed ones (2+ cases), with examples `id · half-move`.
+- Strengths.
+- 2-week plan: 3-4 sessions, for each one what we do and with what.
 
-## 8. Показать ученику
+## 8. Show the Student
 
-Коротко: 3 главные слабости, по одному примеру на каждую (`coach show` позиции), и план. Спроси, согласен ли он. Ученик знает себя лучше движка: если он не согласен, поправь профиль.
+Briefly: the 3 main weaknesses, one example for each (`coach show` positions), and the plan. Ask whether the student agrees. The student knows themselves better than the engine does: if they disagree, correct the profile.

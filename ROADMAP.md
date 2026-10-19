@@ -1,52 +1,52 @@
 # Roadmap
 
-## Этап 1 — готово: цикл «партия → разбор → профиль»
+## Stage 1 - Done: The "Game → Review → Profile" Loop
 
-Stockfish + python-chess, импорт партий с Lichess и chess.com, разбор с критическими моментами, статистика, доска и HTML-отчёт, профиль ученика, скиллы `build-profile` и `review-game`.
+Stockfish + python-chess, game import from Lichess and chess.com, review with critical moments, statistics, board and HTML report, student profile, the `build-profile` and `review-game` skills.
 
-## Этап 2 — живая двусторонняя доска
+## Stage 2 - Live Two-Way Board
 
-Цель: ученик делает ходы на доске, а тренер их читает.
+Goal: the student makes moves on the board, and the coach reads them.
 
-### 2а - готово (2026-10-11)
+### 2a - Done (2026-10-11)
 
-Спецификация и план в `docs/superpowers/`.
+Spec and plan in `docs/superpowers/`.
 
-- `web/`: сервер Nest с MongoDB (REST и WebSocket, одно дерево ходов), клиент на Vite + React + TypeScript, доска `react-chessboard` (MIT), логика `chess.js` (BSD-2). Запуск в Docker (`docker compose up board`, порт 8765).
-- Партия и варианты с ответвлениями, перемотка стрелками и кликами, как в анализе Lichess.
-- Режимы `freeze` и `free` переключает тренер. В свободном режиме ученик листает и делает свои ходы, они видны тренеру в `coach board state` с пометкой `{ученик}`.
-- `coach board load|line|goto|mode|state|delete`. `coach show` идёт через сервер, а без сервера по-старому пишет `out/board.html`.
+- `web/`: Nest server with MongoDB (REST and WebSocket, one move tree), client on Vite + React + TypeScript, board `react-chessboard` (MIT), logic `chess.js` (BSD-2). Runs in Docker (`docker compose up board`, port 8765).
+- Game and lines with branches, navigation with arrow keys and clicks, as in Lichess analysis.
+- The coach switches between the `freeze` and `free` modes. In free mode the student browses and makes their own moves; the coach sees them in `coach board state` marked `{ученик}` (student).
+- `coach board load|line|goto|mode|state|delete`. `coach show` goes through the server, and without the server writes `out/board.html` as before.
 
-### 2б - готово (2026-10-16)
+### 2b - Done (2026-10-16)
 
-Спецификация и план в `docs/superpowers/`.
+Spec and plan in `docs/superpowers/`.
 
-- Очередь действий ученика на сервере и команда `coach inbox`.
-- Хук `UserPromptSubmit` в `.claude/settings.json` прикладывает очередь к сообщению ученика.
-- Панель рядом с доской: шкала оценки и линии движка, которые включает только тренер, заметка тренера (`coach board panel`, `coach board note`).
-- Хвосты 2а закрыты: проверка Origin у WebSocket, проверка тел HTTP-запросов, обрезка вариантов из PGN по `--upto`, превращение пешки перетаскиванием, healthcheck у сервиса `board`.
+- Queue of student actions on the server and the `coach inbox` command.
+- The `UserPromptSubmit` hook in `.claude/settings.json` attaches the queue to the student's message.
+- Panel next to the board: eval bar and engine lines, which only the coach turns on, and a coach's note (`coach board panel`, `coach board note`).
+- Loose ends from 2a closed: Origin check on the WebSocket, validation of HTTP request bodies, trimming lines from the PGN by `--upto`, pawn promotion by dragging, healthcheck for the `board` service.
 
-## Этап 3 — тренировочный контент
+## Stage 3 - Training Content
 
-- **Maia-2** (CSSLab, MIT, PyTorch; на M1 работает через MPS). Перед установкой сверься с README в github.com/CSSLab/maia2.
-  - В разборе: какой ход сыграл бы человек твоего рейтинга и с какой вероятностью. Если Stockfish хочет одно, а Maia твоего уровня почти наверняка играет другое, это слепая зона, типичная для уровня, а значит — тема для тренировки.
-  - Спарринг: `coach play --maia 1600` на доске из этапа 2.
-- **Задачи - готово (2026-10-11).** Спецификация и план в `docs/superpowers/`. База Lichess с фильтром качества, Полгар «5334» и «Радуга тактических приёмов» 1-7 (данные книг только локально, `data/books/`), решения от Stockfish (у «Радуги» всегда, у Полгар там, где нет ответа книги). Задача решается на живой доске (режим `puzzle`), повторение по FSRS (`ts-fsrs`), `coach puzzles next|stats`.
-- **Задачи v2 - готово (2026-10-12).** Спецификация и план в `docs/superpowers/`. Сервис движка в Docker (`web/packages/engine`: Stockfish 19 из исходников, пул процессов с `Threads=1`, HTTP API), к нему ходят доска и импорт. Каждый ход в задаче оценивает движок: равноценный засчитывается, «слабее» - не ошибка, неверный опровергается на доске со стрелками и описанием, «Ещё раз», «Показать решение», «Найти другое» для второго решения. Новые задачи сначала из книг, «Радуга» переимпортирована по мягкому правилу (первый ход выигрывает).
-- **Задачи из своих партий - готово, приёмка 2026-10-17 (74 задачи из 66 разборов).** Спецификация `docs/superpowers/specs/2026-10-16-own-game-puzzles-design.md`, план `docs/superpowers/plans/2026-10-16-own-game-puzzles.md`. Упущенные удары и единственные ходы из разобранных партий становятся задачами источника `games` в той же колоде, выдаются раньше книг и Lichess; импорт идёт сам после `coach review`, есть `coach puzzles import-games`; новый нижний класс исхода «проигрыш».
-- **Дебюты.** Каталог `lichess-org/chess-openings` (CC0) для определения момента выхода из теории. Репертуар хранится в PGN, тренировка линий с интервальным повторением.
-- **Эндшпиль.** API таблиц Lichess (`tablebase.lichess.ovh`) или локальные 5-фигурные Syzygy (около 1 ГБ). Отработка типовых позиций против движка.
-- **Lc0.** Нужен, когда соберётся ПК с RTX 3070 (CUDA, 8 ГБ хватит для стандартных сетей). На M1 должен работать через Metal — проверить `brew info lc0`. Для обучения даёт немного поверх Stockfish, но на нём же запускаются веса Maia-1.
-- **Эксперимент.** Дообучить Maia на своих партиях и получить «цифрового двойника», который предсказывает твои ходы. Позиции, где двойник уверенно ошибается, станут персональным набором задач. Тут пригодится 3070.
+- **Maia-2** (CSSLab, MIT, PyTorch; runs on M1 via MPS). Before installing, check the README at github.com/CSSLab/maia2.
+  - In the review: which move a human of your rating would play and with what probability. If Stockfish wants one move and Maia at your level almost certainly plays another, that is a blind spot typical for the level, and therefore a training topic.
+  - Sparring: `coach play --maia 1600` on the board from stage 2.
+- **Puzzles - done (2026-10-11).** Spec and plan in `docs/superpowers/`. The Lichess database with a quality filter, Polgar's «5334» and Dorofeeva's «Радуга тактических приёмов» ("Rainbow of Tactical Techniques") 1-7 (book data stays local only, `data/books/`), solutions from Stockfish (always for «Радуга», for Polgar where there is no book answer). A puzzle is solved on the live board (`puzzle` mode), FSRS repetition (`ts-fsrs`), `coach puzzles next|stats`.
+- **Puzzles v2 - done (2026-10-12).** Spec and plan in `docs/superpowers/`. Engine service in Docker (`web/packages/engine`: Stockfish 19 from source, a process pool with `Threads=1`, HTTP API), used by the board and the import. Every move in a puzzle is judged by the engine: an equivalent one is accepted, «слабее» (weaker) is not a mistake, a wrong one is refuted on the board with arrows and a description, «Ещё раз» (Try again), «Показать решение» (Show solution), «Найти другое» (Find another) for a second solution. New puzzles come from the books first, «Радуга» was re-imported with the soft rule (the first move wins).
+- **Puzzles from own games - done, accepted 2026-10-17 (74 puzzles from 66 reviews).** Spec `docs/superpowers/specs/2026-10-16-own-game-puzzles-design.md`, plan `docs/superpowers/plans/2026-10-16-own-game-puzzles.md`. Missed tactics and only moves from reviewed games become puzzles of the `games` source in the same deck and are served before books and Lichess; the import runs by itself after `coach review`, and there is `coach puzzles import-games`; a new bottom outcome class "lost" (проигрыш).
+- **Openings.** The `lichess-org/chess-openings` catalog (CC0) to detect the moment of leaving theory. The repertoire is stored in PGN, line training with spaced repetition.
+- **Endgame.** The Lichess tablebase API (`tablebase.lichess.ovh`) or local 5-piece Syzygy (about 1 GB). Practicing typical positions against the engine.
+- **Lc0.** Needed once the PC with an RTX 3070 is built (CUDA, 8 GB is enough for standard networks). On M1 it should work via Metal - check `brew info lc0`. For training it adds little on top of Stockfish, but it is also what runs the Maia-1 weights.
+- **Experiment.** Fine-tune Maia on your own games and get a "digital twin" that predicts your moves. Positions where the twin confidently goes wrong become a personal puzzle set. This is where the 3070 comes in.
 
-## Этап 4 — платформа
+## Stage 4 - Platform
 
-- Ядро `coach` превратить в MCP-сервер с инструментами analyze, review, show, puzzles, profile. Тот же сервер будет работать и в Claude Code, и в веб-приложении.
-- При этом перенести `coach` с Python на TypeScript отдельным пакетом в монорепозиторий `web/` (решение от 2026-10-10: весь проект на одном языке, ученик не пишет на Python). Замены: `chess.js`, разбор PGN с ветками, своя обёртка над UCI для Stockfish, MCP SDK для TypeScript. Страховка: новая версия на тех же партиях должна совпасть с сохранёнными разборами в `data/reviews/` (в git их нет, только на диске - сделать резервную копию до переноса) по классам ходов и критическим моментам, сверка автоматическая. До этого этапа `coach` остаётся на Python и работает на хосте, вне Docker. При переносе `coach analyze` и `review` переходят с локального Stockfish на сервис движка из этапа 3 (`web/packages/engine`, `POST /analyse`).
-- Веб-приложение с Claude через Claude API или Agent SDK, профили нескольких учеников, вход через Lichess OAuth для импорта партий.
-- Лицензии:
-  - Stockfish (GPL-3) на сервере использовать можно.
-  - Если распространять бинарник вместе с приложением, придётся соблюдать GPL.
-  - Фронт делать на MIT/BSD-библиотеках.
-  - Данные Lichess под CC0, Maia-2 под MIT.
-  - API Lichess и chess.com: соблюдать лимиты запросов и их правила.
+- Turn the `coach` core into an MCP server with the tools analyze, review, show, puzzles, profile. The same server will work both in Claude Code and in the web app.
+- At the same time move `coach` from Python to TypeScript as a separate package in the `web/` monorepo (decision of 2026-10-10: the whole project in one language, the student does not write Python). Replacements: `chess.js`, PGN parsing with branches, an own UCI wrapper for Stockfish, the MCP SDK for TypeScript. Safety net: the new version on the same games must match the saved reviews in `data/reviews/` (they are not in git, only on disk - make a backup before the migration) in move classes and critical moments, with automatic comparison. Until this stage `coach` stays in Python and runs on the host, outside Docker. During the migration `coach analyze` and `review` switch from the local Stockfish to the engine service from stage 3 (`web/packages/engine`, `POST /analyse`).
+- A web app with Claude via the Claude API or Agent SDK, profiles for several students, sign-in via Lichess OAuth to import games.
+- Licenses:
+  - Stockfish (GPL-3) can be used on the server.
+  - If the binary is distributed together with the app, the GPL has to be followed.
+  - Build the front end on MIT/BSD libraries.
+  - Lichess data is CC0, Maia-2 is MIT.
+  - Lichess and chess.com APIs: respect their rate limits and rules.
